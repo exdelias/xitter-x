@@ -1052,6 +1052,9 @@ create table if not exists hashflags (
 alter table posts add column if not exists notice jsonb;
 alter table posts add column if not exists count_overrides jsonb;
 alter table users add column if not exists count_overrides jsonb;
+-- how far staff moved the post's created_at; account analytics moves the
+-- post's likes, views and replies by as much so they keep their place after it
+alter table posts add column if not exists created_shift interval;
 
 -- Replies the author of a conversation's first post hid from it (X's "Hide
 -- reply"). They leave the conversation and show under "Hidden replies".
@@ -1387,9 +1390,9 @@ begin
 	return new;
 end $$;
 create or replace trigger federation_post_insert after insert on posts for each row execute function federation_post_changed();
-create or replace trigger federation_post_update after update of text, hidden, edited_at, sensitive, count_overrides on posts for each row
+create or replace trigger federation_post_update after update of text, hidden, edited_at, sensitive, count_overrides, created_at on posts for each row
 	when (old.text is distinct from new.text or old.hidden is distinct from new.hidden or old.edited_at is distinct from new.edited_at or old.sensitive is distinct from new.sensitive
-		or old.count_overrides is distinct from new.count_overrides)
+		or old.count_overrides is distinct from new.count_overrides or old.created_at is distinct from new.created_at)
 	execute function federation_post_changed();
 create or replace trigger federation_post_delete before delete on posts for each row execute function federation_post_changed();
 

@@ -71,7 +71,7 @@ copy during setup, and it stays on that machine.
   `/account/migrate`): see [Moving accounts](#moving-accounts)
 - Reporting posts and accounts
 - Account analytics (Overview, Content and each post's page) from the
-  instance's own counts
+  instance's own counts, or the counts staff set on a post or profile
 - Sticker packs made by staff (Admin > Stickers), picked from a button beside
   the composer's emoji button and posted as images
 - Branded hashtags (X's branded likes and hashmoji, Admin > Branded
@@ -216,7 +216,9 @@ copy during setup, and it stays on that machine.
   seen at the same addresses), hide, mark sensitive or delete many posts, and
   delete many files, each reporting what worked and what didn't. An account's
   page links its profile picture, banner and all its uploads; pride flags go
-  up to four per account, in the order picked
+  up to four per account, in the order picked. A post's Edit button sets the
+  label under it, a staff community note, the counts it shows and the date it
+  says it was published (its likes and views move with it in analytics)
 - Staff roles (admin, moderator, support) whose powers an admin chooses: Admin >
   Staff permissions turns each permission (changing standing, deleting posts,
   editing profiles, resetting passwords…) on or off for moderators and support,

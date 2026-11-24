@@ -34,6 +34,8 @@ const clientChoices = () => ({
 import { decideImport, pendingImports } from "./archive-import";
 
 const STANDINGS = ["active", "restricted", "limited", "suspended"];
+// X's first post; a post can't say it was published before it
+const FIRST_POST = Date.UTC(2006, 2, 21);
 
 // whole numbers from 0 up for the given keys; blanks dropped, nothing left is null
 function countsOf(value: unknown, keys: string[]) {
@@ -526,6 +528,24 @@ export const toolActions: Record<string, Action> = {
 			const counts = countsOf(b.counts, ["likes", "replies", "reposts", "quotes", "bookmarks", "views"]);
 			await sql`update posts set count_overrides = ${counts ? sql`${JSON.stringify(counts)}::text::jsonb` : null} where id = ${id}::bigint`;
 			await audit(a, "set_post_counts", p.user_id, { post: id, counts });
+			return {};
+		},
+	},
+	// when the post says it was published; its order in timelines comes from its id and stays
+	setPostDate: {
+		role: "admin",
+		run: async (a, b) => {
+			const id = idOf(b.id);
+			const [p] = await sql`select user_id::text, created_at from posts where id = ${id}::bigint`;
+			if (!p) throw new AdminError("No such post.", 404);
+			await guard(a, p.user_id, true);
+			const at = typeof b.at === "string" || typeof b.at === "number" ? new Date(b.at) : new Date(NaN);
+			if (Number.isNaN(at.getTime())) throw new AdminError("Pick a date and time.");
+			if (at.getTime() < FIRST_POST || at.getTime() > Date.now() + 60_000) throw new AdminError("Pick a date between March 21, 2006 and now.");
+			// both sides of the subtraction read the row as it was before this update
+			await sql`update posts set created_shift = coalesce(created_shift, interval '0') + (${at}::timestamptz - created_at), created_at = ${at}
+				where id = ${id}::bigint`;
+			await audit(a, "set_post_date", p.user_id, { post: id, from: p.created_at.toISOString(), to: at.toISOString() });
 			return {};
 		},
 	},

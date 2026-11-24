@@ -3,7 +3,8 @@
 // something another account did to one of the viewer's posts or to the
 // account itself; the viewer's own actions only count as posts made. What
 // isn't recorded here (link and hashtag clicks, shares, detail expands)
-// stays 0. The other tabs show their own empty states.
+// stays 0. The other tabs show their own empty states. Counts staff set on a
+// post or profile are what analytics shows too, so the two never disagree.
 
 import type { Viewer } from "./auth";
 import { sql } from "./db";
@@ -35,32 +36,66 @@ const span = (from: number, to: number): [number, number] => {
 // the start of the step (ms) an event falls in, counted in the database
 const bucketOf = (step: number) => sql`floor(extract(epoch from t.at) * 1000 / ${step})::bigint * ${step}`;
 
+// how far staff moved post p's date (admin setPostDate): its engagements move
+// with it, so they still come after it
+const shift = () => sql`coalesce(p.created_shift, interval '0')`;
+
+// what analytics counts of each engagement type on post p: other accounts'
+// actions, not the author's own
+const counted = {
+	Displayed: () => sql`(select count(*)::int from post_views x where x.post_id = p.id and x.user_id <> p.user_id)`,
+	Fav: () => sql`(select count(*)::int from likes x where x.post_id = p.id and x.user_id <> p.user_id)`,
+	Retweet: () => sql`(select count(*)::int from reposts x where x.post_id = p.id and x.user_id <> p.user_id)`,
+	QuoteTweet: () => sql`(select count(*)::int from posts x where x.quote_id = p.id and x.user_id <> p.user_id)`,
+	Reply: () => sql`(select count(*)::int from posts x where x.reply_to_id = p.id and x.user_id <> p.user_id)`,
+	Bookmark: () => sql`(select count(*)::int from bookmarks x where x.post_id = p.id and x.user_id <> p.user_id)`,
+};
+// a post's count, or the one staff set for it (admin setPostCounts)
+const shown = (key: string, type: keyof typeof counted) => sql`coalesce((p.count_overrides->>${key}::text)::int, ${counted[type]()})`;
+
+// The counts staff set on the posts matching `where`, as engagements: what
+// they add to (or take from) the real ones, at the time the post was
+// published. Rows of (type, at, actor, n), with no actor.
+const setCounts = (where: ReturnType<typeof sql>) => sql`
+	select d.type, p.created_at as at, null::bigint as actor, d.n from posts p cross join lateral (values
+		('Displayed', (p.count_overrides->>'views')::int - ${counted.Displayed()}),
+		('Fav', (p.count_overrides->>'likes')::int - ${counted.Fav()}),
+		('Retweet', (p.count_overrides->>'reposts')::int - ${counted.Retweet()}),
+		('QuoteTweet', (p.count_overrides->>'quotes')::int - ${counted.QuoteTweet()}),
+		('Reply', (p.count_overrides->>'replies')::int - ${counted.Reply()}),
+		('Bookmark', (p.count_overrides->>'bookmarks')::int - ${counted.Bookmark()})
+	) d(type, n) where ${where} and p.count_overrides is not null and d.n <> 0`;
+
 // Every engagement on the account's posts and profile, and its own new posts,
 // counted per (engagement_type, step, verified actor). The types are X's:
-// Displayed is an impression, Fav a like, ProfilePic a profile visit.
+// Displayed is an impression, Fav a like, ProfilePic a profile visit. A count
+// set lower than the real one takes a step down to 0 at most.
 const events = (userId: string, from: number, to: number, step: number, byVerified: boolean) => sql`
 	select t.type, ${step ? bucketOf(step) : sql`${from}::bigint`} as bucket,
-		${byVerified ? sql`coalesce(a.verified_type is not null, false)` : sql`false`} as verified, count(*)::int as count from (
-		select 'Displayed' as type, v.created_at as at, v.user_id as actor from post_views v join posts p on p.id = v.post_id
-			where p.user_id = ${userId}::bigint and v.user_id <> p.user_id
-		union all select 'Fav', l.created_at, l.user_id from likes l join posts p on p.id = l.post_id
-			where p.user_id = ${userId}::bigint and l.user_id <> p.user_id
-		union all select 'Retweet', r.created_at, r.user_id from reposts r join posts p on p.id = r.post_id
-			where p.user_id = ${userId}::bigint and r.user_id <> p.user_id
-		union all select 'Bookmark', b.created_at, b.user_id from bookmarks b join posts p on p.id = b.post_id
-			where p.user_id = ${userId}::bigint and b.user_id <> p.user_id
-		union all select 'Reply', r.created_at, r.user_id from posts r join posts p on p.id = r.reply_to_id
-			where p.user_id = ${userId}::bigint and r.user_id <> p.user_id
-		union all select 'QuoteTweet', q.created_at, q.user_id from posts q join posts p on p.id = q.quote_id
-			where p.user_id = ${userId}::bigint and q.user_id <> p.user_id
-		union all select 'Follow', f.created_at, f.follower_id from follows f where f.followee_id = ${userId}::bigint
-		union all select 'Unfollow', u.created_at, u.follower_id from unfollows u where u.followee_id = ${userId}::bigint
-		union all select 'ProfilePic', v.created_at, v.visitor_id from profile_visits v where v.profile_id = ${userId}::bigint
-		union all select case when p.reply_to_id is not null then 'ReplyCreate' when p.quote_id is not null then 'QuoteCreate' else 'TweetCreate' end,
-			p.created_at, p.user_id from posts p where p.user_id = ${userId}::bigint
+		${byVerified ? sql`coalesce(a.verified_type is not null, false)` : sql`false`} as verified, sum(t.n)::int as count from (
+		select e.*, 1 as n from (
+			select 'Displayed' as type, v.created_at + ${shift()} as at, v.user_id as actor from post_views v join posts p on p.id = v.post_id
+				where p.user_id = ${userId}::bigint and v.user_id <> p.user_id
+			union all select 'Fav', l.created_at + ${shift()}, l.user_id from likes l join posts p on p.id = l.post_id
+				where p.user_id = ${userId}::bigint and l.user_id <> p.user_id
+			union all select 'Retweet', r.created_at + ${shift()}, r.user_id from reposts r join posts p on p.id = r.post_id
+				where p.user_id = ${userId}::bigint and r.user_id <> p.user_id
+			union all select 'Bookmark', b.created_at + ${shift()}, b.user_id from bookmarks b join posts p on p.id = b.post_id
+				where p.user_id = ${userId}::bigint and b.user_id <> p.user_id
+			union all select 'Reply', r.created_at + ${shift()}, r.user_id from posts r join posts p on p.id = r.reply_to_id
+				where p.user_id = ${userId}::bigint and r.user_id <> p.user_id
+			union all select 'QuoteTweet', q.created_at + ${shift()}, q.user_id from posts q join posts p on p.id = q.quote_id
+				where p.user_id = ${userId}::bigint and q.user_id <> p.user_id
+			union all select 'Follow', f.created_at, f.follower_id from follows f where f.followee_id = ${userId}::bigint
+			union all select 'Unfollow', u.created_at, u.follower_id from unfollows u where u.followee_id = ${userId}::bigint
+			union all select 'ProfilePic', v.created_at, v.visitor_id from profile_visits v where v.profile_id = ${userId}::bigint
+			union all select case when p.reply_to_id is not null then 'ReplyCreate' when p.quote_id is not null then 'QuoteCreate' else 'TweetCreate' end,
+				p.created_at, p.user_id from posts p where p.user_id = ${userId}::bigint
+		) e
+		union all ${setCounts(sql`p.user_id = ${userId}::bigint`)}
 	) t left join users a on a.id = t.actor
 	where t.at >= ${new Date(from)} and t.at < ${new Date(to)}
-	group by 1, 2, 3`;
+	group by 1, 2, 3 having sum(t.n) > 0`;
 
 // X's UecMetricsTimeSeriesValue rows: counts per type (and per verified
 // actor when asked), per day, hour or for the whole range
@@ -87,7 +122,7 @@ async function followSeries(userId: string, from: number, to: number) {
 }
 
 async function followers(userId: string) {
-	const [f] = await sql`select count(*)::int as followers,
+	const [f] = await sql`select coalesce((select (count_overrides->>'followers')::int from users where id = ${userId}::bigint), count(*)::int) as followers,
 		count(*) filter (where u.verified_type is not null)::int as verified,
 		count(*) filter (where u.last_seen_at > now() - interval '28 days')::int as active,
 		count(*) filter (where u.last_seen_at > now() - interval '28 days' and u.verified_type is not null)::int as active_verified,
@@ -108,12 +143,11 @@ const viewerUser = (v: Viewer, fields: object) => ({
 // totals for a post, by the metric names the content table and post page ask for
 async function postTotals(postIds: string[]) {
 	const rows = await sql`select p.id::text,
-		(select count(*)::int from post_views v where v.post_id = p.id and v.user_id <> p.user_id) as "Impressions",
-		(select count(*)::int from likes l where l.post_id = p.id and l.user_id <> p.user_id) as "Likes",
-		(select count(*)::int from posts r where r.reply_to_id = p.id and r.user_id <> p.user_id) as "Replies",
-		(select count(*)::int from reposts r where r.post_id = p.id and r.user_id <> p.user_id)
-			+ (select count(*)::int from posts q where q.quote_id = p.id and q.user_id <> p.user_id) as "Retweets",
-		(select count(*)::int from bookmarks b where b.post_id = p.id and b.user_id <> p.user_id) as "Bookmark"
+		${shown("views", "Displayed")} as "Impressions",
+		${shown("likes", "Fav")} as "Likes",
+		${shown("replies", "Reply")} as "Replies",
+		${shown("reposts", "Retweet")} + ${shown("quotes", "QuoteTweet")} as "Retweets",
+		${shown("bookmarks", "Bookmark")} as "Bookmark"
 		from posts p where p.id = any(${sql.array(postIds, "INT8")})`;
 	const out = new Map<string, Record<string, number>>();
 	for (const r of rows as any[]) {
@@ -173,10 +207,11 @@ async function postCard(v: Viewer, p: any) {
 	const [totals, media, author] = await Promise.all([postTotals([p.id]), mediaEntities([p.id]), userById(v.id, p.user_id)]);
 	const t = totals.get(p.id);
 	// the counts under the post are its public ones, the author's own included
-	const [c] = await sql`select (select count(*)::int from bookmarks where post_id = ${p.id}::bigint) as bookmark_count,
-		(select count(*)::int from likes where post_id = ${p.id}::bigint) as favorite_count,
-		(select count(*)::int from posts where reply_to_id = ${p.id}::bigint) as reply_count,
-		(select count(*)::int from reposts where post_id = ${p.id}::bigint) as retweet_count`;
+	const [c] = await sql`select coalesce((p.count_overrides->>'bookmarks')::int, (select count(*)::int from bookmarks where post_id = p.id)) as bookmark_count,
+		coalesce((p.count_overrides->>'likes')::int, (select count(*)::int from likes where post_id = p.id)) as favorite_count,
+		coalesce((p.count_overrides->>'replies')::int, (select count(*)::int from posts where reply_to_id = p.id)) as reply_count,
+		coalesce((p.count_overrides->>'reposts')::int, (select count(*)::int from reposts where post_id = p.id)) as retweet_count
+		from posts p where p.id = ${p.id}::bigint`;
 	return {
 		details: details(p),
 		url_entities: [],
@@ -322,17 +357,20 @@ export const analyticsHandlers = {
 	},
 };
 
-// one post's engagements per step (an hour or a day)
+// one post's engagements per step (an hour or a day), moved and counted as in events()
 async function postSeries(postId: string, from: number, to: number, step: number) {
-	const rows = await sql`select t.type, ${bucketOf(step)} as bucket, count(*)::int as count from (
-		select 'Displayed' as type, v.created_at as at from post_views v join posts p on p.id = v.post_id where v.post_id = ${postId}::bigint and v.user_id <> p.user_id
-		union all select 'Fav', l.created_at from likes l join posts p on p.id = l.post_id where l.post_id = ${postId}::bigint and l.user_id <> p.user_id
-		union all select 'Retweet', r.created_at from reposts r join posts p on p.id = r.post_id where r.post_id = ${postId}::bigint and r.user_id <> p.user_id
-		union all select 'Bookmark', b.created_at from bookmarks b join posts p on p.id = b.post_id where b.post_id = ${postId}::bigint and b.user_id <> p.user_id
-		union all select 'Reply', r.created_at from posts r join posts p on p.id = r.reply_to_id where r.reply_to_id = ${postId}::bigint and r.user_id <> p.user_id
-		union all select 'QuoteTweet', q.created_at from posts q join posts p on p.id = q.quote_id where q.quote_id = ${postId}::bigint and q.user_id <> p.user_id
+	const rows = await sql`select t.type, ${bucketOf(step)} as bucket, sum(t.n)::int as count from (
+		select e.*, 1 as n from (
+			select 'Displayed' as type, v.created_at + ${shift()} as at from post_views v join posts p on p.id = v.post_id where v.post_id = ${postId}::bigint and v.user_id <> p.user_id
+			union all select 'Fav', l.created_at + ${shift()} from likes l join posts p on p.id = l.post_id where l.post_id = ${postId}::bigint and l.user_id <> p.user_id
+			union all select 'Retweet', r.created_at + ${shift()} from reposts r join posts p on p.id = r.post_id where r.post_id = ${postId}::bigint and r.user_id <> p.user_id
+			union all select 'Bookmark', b.created_at + ${shift()} from bookmarks b join posts p on p.id = b.post_id where b.post_id = ${postId}::bigint and b.user_id <> p.user_id
+			union all select 'Reply', r.created_at + ${shift()} from posts r join posts p on p.id = r.reply_to_id where r.reply_to_id = ${postId}::bigint and r.user_id <> p.user_id
+			union all select 'QuoteTweet', q.created_at + ${shift()} from posts q join posts p on p.id = q.quote_id where q.quote_id = ${postId}::bigint and q.user_id <> p.user_id
+		) e
+		union all select o.type, o.at, o.n from (${setCounts(sql`p.id = ${postId}::bigint`)}) o
 	) t where t.at >= ${new Date(from)} and t.at < ${new Date(to)}
-		group by 1, 2`;
+		group by 1, 2 having sum(t.n) > 0`;
 	return (rows as any[])
 		.map((r) => ({ timestamp: String(r.bucket), engagement_type: r.type as string, count: r.count as number }))
 		.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));

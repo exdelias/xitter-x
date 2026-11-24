@@ -365,6 +365,7 @@ async function applyPost(instance: string, p: any, depth = 0): Promise<string | 
 	const editedAt = typeof p.edited_at === "string" && !Number.isNaN(Date.parse(p.edited_at)) ? new Date(p.edited_at) : null;
 	// the app it was posted from on its home instance; older instances don't send it
 	const source = typeof p.source === "string" && /^[^\p{Cc}]{1,60}$/u.test(p.source.trim()) ? p.source.trim() : instance;
+	const sentAt = typeof p.created_at === "string" && !Number.isNaN(Date.parse(p.created_at)) ? new Date(Math.min(Date.parse(p.created_at), Date.now())) : undefined;
 	if (local) {
 		const old = await sql.begin(async (tx) => {
 			const [row] = await tx`select text, created_at, edited_at, edit_count, reply_to_id from posts where id = ${local}::bigint for update`;
@@ -373,7 +374,8 @@ async function applyPost(instance: string, p: any, depth = 0): Promise<string | 
 				await tx`insert into post_versions (version_id, post_id, seq, text, created_at)
 					values (${newId()}::bigint, ${local}::bigint, ${row.edit_count}, ${row.text}, ${row.edited_at ?? row.created_at})`;
 			await tx`update posts set text = ${text}, source = ${source}, sensitive = ${!!p.sensitive}, edited_at = ${changed ? (editedAt ?? new Date()) : editedAt},
-				edit_count = edit_count + ${changed ? 1 : 0}, remote_counts = ${countsOf(p.counts, POST_COUNTS)}::text::jsonb where id = ${local}::bigint`;
+				edit_count = edit_count + ${changed ? 1 : 0}, remote_counts = ${countsOf(p.counts, POST_COUNTS)}::text::jsonb,
+				created_at = coalesce(${sentAt ?? null}::timestamptz, created_at) where id = ${local}::bigint`;
 			return row;
 		});
 		const orphaned = old?.reply_to_id && !(await sql`select 1 from posts where id = ${old.reply_to_id}::bigint`).length;
@@ -392,7 +394,7 @@ async function applyPost(instance: string, p: any, depth = 0): Promise<string | 
 	const [parent] = replyTo ? await sql`select conversation_id::text, user_id::text from posts where id = ${replyTo}::bigint` : [];
 	if (parent && ((await blockedBetween(author, parent.user_id)) || (await replyLimited(replyTo!, parent.conversation_id, author)))) return undefined;
 	const id = newId();
-	const created = typeof p.created_at === "string" && !Number.isNaN(Date.parse(p.created_at)) ? new Date(Math.min(Date.parse(p.created_at), Date.now())) : new Date();
+	const created = sentAt ?? new Date();
 	await sql`insert into posts (id, user_id, text, reply_to_id, reply_to_user_id, conversation_id, quote_id, source, sensitive, edited_at, created_at)
 		values (${id}::bigint, ${author}::bigint, ${text}, ${replyTo ?? null}::bigint, ${parent?.user_id ?? null}::bigint, ${parent?.conversation_id ?? id}::bigint,
 			${quote ?? null}::bigint, ${source}, ${!!p.sensitive}, ${editedAt}, ${created})`;

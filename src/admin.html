@@ -1760,7 +1760,9 @@ const RENDER = {
 	},
 
 	async posts(main) {
-		// the label and shown counts of one post, opened by its Edit button
+		// a datetime-local value, in the browser's time zone, to the second
+		const local = (d) => new Date(new Date(d).getTime() - new Date(d).getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+		// the label, shown counts and date of one post, opened by its Edit button
 		const postEditor = (p) => {
 			const n = p.notice || {}, c = p.count_overrides || {};
 			return '<div class="grid2">' + (can("setPostNotice") ? '<div><b>Label under the post</b><div class="field"><select data-k="type">' +
@@ -1771,7 +1773,8 @@ const RENDER = {
 				(can("setPostNote") ? '<div><b>Community note</b><p class="dim small">Shows on the post right away, without ratings. Leave it blank to remove it.</p><div class="field"><textarea data-k="note" maxlength="500" rows="4" placeholder="Readers added context...">' + esc(p.staff_note || "") + '</textarea></div><button class="btn primary" data-save-note>Save note</button></div>' : "") +
 				(can("setPostCounts") ? '<div><b>Shown counts</b><p class="dim small">Blank shows the real number. Only the number changes, not who liked or reposted.</p><div class="row" style="flex-wrap:wrap">' +
 					["likes", "replies", "reposts", "quotes", "bookmarks", "views"].map((k) => '<label class="small" style="width:30%">' + k + '<input data-k="' + k + '" type="number" min="0" value="' + (c[k] ?? "") + '"></label>').join("") +
-					'</div><button class="btn primary" data-save-counts style="margin-top:8px">Save counts</button></div>' : "") + "</div>";
+					'</div><button class="btn primary" data-save-counts style="margin-top:8px">Save counts</button></div>' : "") +
+				(can("setPostDate") ? '<div><b>Published</b><p class="dim small">The date and time the post shows, in your time zone. Its place in timelines stays; Account Analytics moves its likes and views along with it.</p><div class="field"><input data-k="at" type="datetime-local" step="1" value="' + local(p.created_at) + '"></div><button class="btn primary" data-save-date>Save date</button></div>' : "") + "</div>";
 		};
 		const pickable = can("deletePost") || can("setPostVisibility");
 		main.innerHTML = '<h1>Posts</h1><div class="bar"><input id="q" placeholder="Text contains" style="flex:1;min-width:160px"><input id="author" placeholder="@author"></div>' +
@@ -1801,7 +1804,7 @@ const RENDER = {
 						'<div class="row" style="flex-wrap:nowrap">' +
 							(can("setPostVisibility") ? '<button class="btn" data-vis="' + esc(p.id) + '" data-hidden="' + !p.hidden + '" data-sensitive="' + !!p.sensitive + '" title="Hidden posts are seen by staff only">' + (p.hidden ? "Show" : "Hide") + "</button>" +
 								'<button class="btn" data-vis="' + esc(p.id) + '" data-hidden="' + !!p.hidden + '" data-sensitive="' + !p.sensitive + '" title="Media behind a content warning">' + (p.sensitive ? "Not sensitive" : "Sensitive") + "</button>" : "") +
-							(can("setPostNotice") || can("setPostNote") || can("setPostCounts") ? '<button class="btn" data-edit="' + esc(p.id) + '">Edit</button>' : "") +
+							(can("setPostNotice") || can("setPostNote") || can("setPostCounts") || can("setPostDate") ? '<button class="btn" data-edit="' + esc(p.id) + '">Edit</button>' : "") +
 							(can("deletePost") ? '<button class="btn danger" data-del="' + esc(p.id) + '">Delete</button>' : "") + "</div></td></tr>" +
 						'<tr data-editor="' + esc(p.id) + '" hidden><td colspan="' + (pickable ? 5 : 4) + '">' + postEditor(p) + "</td></tr>").join("") + "</table>"
 				: '<div class="empty">No posts match.</div>';
@@ -1823,6 +1826,8 @@ const RENDER = {
 				if (nb) nb.onclick = () => act(() => api("setPostNote", { id, text: val("note") }), "Note saved").then(load);
 				const cs = row.querySelector("[data-save-counts]");
 				if (cs) cs.onclick = () => act(() => api("setPostCounts", { id, counts: Object.fromEntries(["likes", "replies", "reposts", "quotes", "bookmarks", "views"].map((k) => [k, val(k)])) }), "Counts saved").then(load);
+				const ds = row.querySelector("[data-save-date]");
+				if (ds) ds.onclick = () => act(() => api("setPostDate", { id, at: val("at") ? new Date(val("at")).toISOString() : "" }), "Date saved").then(load);
 			});
 			$("#list").querySelectorAll("[data-vis]").forEach((b) => b.onclick = () =>
 				act(() => api("setPostVisibility", { id: b.dataset.vis, hidden: b.dataset.hidden === "true", sensitive: b.dataset.sensitive === "true" }), "Post updated").then(load));
