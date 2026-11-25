@@ -44,14 +44,14 @@ const a = await session(nameA);
 const b = await session(nameB);
 const idOf = async (name: string) => (await sql`select id::text from users where lower(screen_name) = lower(${name})`)[0].id as string;
 const [idA, idB, idOrg] = await Promise.all([idOf(nameA), idOf(nameB), idOf(orgName)]);
-const userRow = async (id: string) => (await sql`select verified_type, premium_tier, premium_until, premium_checkmark, shop_verified_until from users where id = ${id}::bigint`)[0];
+const userRow = async (id: string) => (await sql`select verified_type, premium_tier, premium_since, premium_until, premium_checkmark, premium_cancel_at, shop_verified_until from users where id = ${id}::bigint`)[0];
 const lastMessage = async (id: string) => (await sql`select body from staff_messages where user_id = ${id}::bigint order by id desc limit 1`)[0]?.body as string | undefined;
 const waiting = async () => (await boss.admin("premium")).requests as any[];
 
 // a clean start: no plans or requests for the test accounts, plain badges
 const reset = async () => {
 	await sql`delete from premium_requests where user_id in (${idA}::bigint, ${idB}::bigint, ${idOrg}::bigint)`;
-	await sql`update users set premium_tier = null, premium_since = null, premium_until = null, premium_checkmark = false where id in (${idA}::bigint, ${idB}::bigint, ${idOrg}::bigint)`;
+	await sql`update users set premium_tier = null, premium_since = null, premium_until = null, premium_checkmark = false, premium_cancel_at = null where id in (${idA}::bigint, ${idB}::bigint, ${idOrg}::bigint)`;
 	await sql`update users set verified_type = null, verified_at = null, shop_verified_until = null where id in (${idA}::bigint, ${idB}::bigint)`;
 };
 await reset();
@@ -116,9 +116,45 @@ check(!!again?.data?.notetweet_create?.tweet_results?.result?.rest_id, "Basic st
 const plain = await b.gql("CreateNoteTweet", { tweet_text: long });
 check(!!plain?.errors?.length, "an account without a plan still can't", plain?.data);
 
-// cancelled by the account
-check((await a.form({ action: "cancel" })).status === 303 && (await userRow(idA)).premium_tier === null, "A cancels Basic");
-check((await a.form({ action: "cancel" })).text.includes("no plan"), "cancelling twice says there's nothing to cancel");
+// cancelled by the account: it runs to the end of its period
+const DAY = 86_400_000;
+const monthsLater = (d: Date, n: number) => {
+	const x = new Date(d);
+	x.setUTCMonth(x.getUTCMonth() + n);
+	return x.getTime();
+};
+check((await a.form({ action: "cancel" })).status === 303, "A cancels Basic");
+row = await userRow(idA);
+check(row.premium_tier === "basic" && row.verified_type === null, "A still has Basic after cancelling", row.premium_tier);
+check(new Date(row.premium_cancel_at).getTime() === monthsLater(row.premium_since, 1), "it ends a month after it started, the end of its first period", { since: row.premium_since, ends: row.premium_cancel_at });
+check((await a.page()).includes("Cancelled: it ends on"), "the page says when it ends");
+check((await a.form({ action: "cancel" })).text.includes("already cancelled"), "cancelling twice says it's already cancelled");
+check(!!(await a.gql("CreateNoteTweet", { tweet_text: long }))?.data?.notetweet_create, "until then, long posts still work");
+check((await a.form({ action: "keep" })).status === 303 && (await userRow(idA)).premium_cancel_at === null, "A keeps the plan after all");
+check((await a.form({ action: "keep" })).text.includes("isn't cancelled"), "keeping a plan that isn't cancelled says so");
+// 40 days in, the current period is the second month
+await sql`update users set premium_since = now() - interval '40 days' where id = ${idA}::bigint`;
+await a.form({ action: "cancel" });
+row = await userRow(idA);
+const ends = new Date(row.premium_cancel_at).getTime();
+check(ends === monthsLater(row.premium_since, 2) && ends > Date.now() && ends - Date.now() < 31 * DAY, "40 days in, it ends at the end of the second month", row.premium_cancel_at);
+check(!(await expirePremium()) || (await userRow(idA)).premium_tier === "basic", "nothing ends before the period is over");
+// a plan with an end date runs to it
+await boss.admin("setPremium", { user: nameA, tier: "premium", until: new Date(Date.now() + 10 * DAY).toISOString() });
+row = await userRow(idA);
+check(row.premium_cancel_at === null && row.premium_tier === "premium", "staff changing the plan undoes the cancellation");
+await a.form({ action: "cancel" });
+row = await userRow(idA);
+check(new Date(row.premium_cancel_at).getTime() === new Date(row.premium_until).getTime() && row.verified_type === "blue", "a plan with an end date, cancelled, runs to that date, checkmark and all");
+const listed = (await boss.admin("premium")).members.find((m: any) => m.user_id === idA);
+check(!!listed?.cancel_at, "staff see that it's cancelled");
+// the period is over
+await sql`update users set premium_cancel_at = now() - interval '1 second' where id = ${idA}::bigint`;
+await expirePremium();
+row = await userRow(idA);
+check(row.premium_tier === null && row.verified_type === null && row.premium_cancel_at === null, "when the period is over, the plan and its checkmark end", row);
+check((await lastMessage(idA))?.includes("has ended"), "and A is told");
+check((await a.form({ action: "cancel" })).text.includes("no plan"), "with no plan, there's nothing to cancel");
 
 // a badge staff gave stays when the plan ends
 await boss.admin("setBadge", { id: idB, badge: "blue" });

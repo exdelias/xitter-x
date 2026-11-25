@@ -4,7 +4,7 @@
 
 import { accountPage, esc } from "./account-page";
 import type { Viewer } from "./auth";
-import { PremiumError, TIERS, endPremium, isTier, planOf, requestPremium, requestsOf, withdrawRequest } from "./premium";
+import { PremiumError, TIERS, cancelPremium, isTier, keepPremium, planOf, requestPremium, requestsOf, withdrawRequest } from "./premium";
 import { feature, settings } from "./settings";
 
 const CSS = `.plans{display:grid;gap:12px;margin:0 0 16px}
@@ -20,7 +20,8 @@ const perks = (tier: keyof typeof TIERS) => `<ul>${TIERS[tier].perks.map((p) => 
 const DONE: Record<string, string> = {
 	requested: "Your request was sent. Staff will look at it, and you'll get a message in Notifications either way.",
 	withdrawn: "Your request was withdrawn.",
-	cancelled: "Your plan was cancelled.",
+	cancelled: "Your plan is cancelled. You keep it until the end of its period.",
+	kept: "You're keeping your plan.",
 };
 
 async function page(req: Request, viewer: Viewer, error = "") {
@@ -34,11 +35,19 @@ async function page(req: Request, viewer: Viewer, error = "") {
 	parts.push(`<p class="dim">On ${esc(settings().instance_name)}, Premium isn't paid for: you ask for a plan and staff decide.</p>`);
 	if (error) parts.push(`<p class="error" role="alert">${esc(error)}</p>`);
 	if (done) parts.push(`<div class="card success" role="status"><p>${esc(done)}</p></div>`);
-	if (plan)
-		parts.push(`<div class="card success"><p><b>You have ${esc(TIERS[plan.tier].name)}</b><br><span class="dim">Since ${date(plan.since)}, ${plan.until ? `until ${date(plan.until)}` : "with no end date"}</span></p>${perks(plan.tier)}
-<details style="margin-top:12px"><summary>Cancel ${esc(TIERS[plan.tier].name)}</summary>
-<p class="dim">It ends now${plan.checkmark ? ", and so does the checkmark that came with it" : ""}. To have it again, you'd ask staff again.</p>
-<form method="post" action="/account/premium">${csrf}<input type="hidden" name="action" value="cancel"><button type="submit" class="danger small">Cancel ${esc(TIERS[plan.tier].name)} now</button></form></details></div>`);
+	if (plan) {
+		const name = esc(TIERS[plan.tier].name);
+		const checkmark = plan.checkmark ? ", and so does the checkmark that came with it" : "";
+		const term = plan.cancel_at
+			? `Since ${date(plan.since)}. Cancelled: it ends on ${date(plan.cancel_at)}`
+			: `Since ${date(plan.since)}, ${plan.until ? `until ${date(plan.until)}` : "month to month with no end date"}`;
+		const action = plan.cancel_at
+			? `<form method="post" action="/account/premium" style="margin-top:12px">${csrf}<input type="hidden" name="action" value="keep"><button type="submit" class="small">Keep ${name}</button></form>`
+			: `<details style="margin-top:12px"><summary>Cancel ${name}</summary>
+<p class="dim">You keep it until ${date(plan.period_end)}, the end of ${plan.until ? "your plan" : "its current month"}. Then it ends${checkmark}. Until then you can keep it after all.</p>
+<form method="post" action="/account/premium">${csrf}<input type="hidden" name="action" value="cancel"><button type="submit" class="danger small">Cancel ${name}</button></form></details>`;
+		parts.push(`<div class="card ${plan.cancel_at ? "warning" : "success"}"><p><b>You have ${name}</b><br><span class="dim">${term}</span></p>${perks(plan.tier)}${action}</div>`);
+	}
 	if (pending)
 		parts.push(`<div class="card"><p><b>Your request for ${esc(TIERS[pending.tier as keyof typeof TIERS].name)} is waiting for review</b><br><span class="dim">Sent ${date(pending.created_at)}</span></p>
 <form method="post" action="/account/premium">${csrf}<input type="hidden" name="action" value="withdraw"><button type="submit" class="secondary small">Withdraw request</button></form></div>`);
@@ -68,12 +77,13 @@ export async function premiumRoute(req: Request, viewer: Viewer): Promise<Respon
 			const tier = String(form?.get("tier") ?? "");
 			await requestPremium(viewer.id, isTier(tier) ? tier : "", form?.get("note"));
 		} else if (action === "withdraw") await withdrawRequest(viewer.id);
-		else if (action === "cancel") await endPremium(viewer.id, null);
+		else if (action === "cancel") await cancelPremium(viewer.id);
+		else if (action === "keep") await keepPremium(viewer.id);
 		else return page(req, viewer, "Unknown action.");
 	} catch (e) {
 		if (e instanceof PremiumError) return page(req, viewer, e.message);
 		throw e;
 	}
-	const done = action === "request" ? "requested" : action === "withdraw" ? "withdrawn" : "cancelled";
+	const done = ({ request: "requested", withdraw: "withdrawn", cancel: "cancelled", keep: "kept" } as Record<string, string>)[action];
 	return new Response(null, { status: 303, headers: { location: `/account/premium?done=${done}` } });
 }

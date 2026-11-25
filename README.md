@@ -189,7 +189,10 @@ copy during setup, and it stays on that machine.
   for 30 days, 90 days, a year, until a date or with no end, or decline them
   with a reason (Admin > Premium), and can give, change and end plans
   directly; each decision reaches the account as a message in Notifications,
-  and plans end by themselves on their end date. Every plan gives longer
+  and plans end by themselves on their end date. An account that cancels
+  keeps its plan to the end of the period it is in (its end date, or the end
+  of the current month for a plan without one) and can keep it after all
+  until then; staff can still end a plan at once. Every plan gives longer
   posts (the blue limit) and a boost for its replies in conversations;
   Premium and Premium+ also give the blue checkmark, which goes with the
   plan, while a badge staff gave or an organisation's stays. Staff

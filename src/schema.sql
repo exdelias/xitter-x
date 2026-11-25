@@ -1965,6 +1965,9 @@ alter table users add column if not exists premium_since timestamptz;
 alter table users add column if not exists premium_until timestamptz;
 alter table users add column if not exists premium_checkmark boolean not null default false;
 create index if not exists users_premium_until_idx on users (premium_until) where premium_until is not null;
+-- set when the account cancels: the plan runs to the end of its period, then ends
+alter table users add column if not exists premium_cancel_at timestamptz;
+create index if not exists users_premium_cancel_idx on users (premium_cancel_at) where premium_cancel_at is not null;
 -- requests for a plan, which staff approve or decline (Admin > Premium)
 create table if not exists premium_requests (
 	id bigint primary key,

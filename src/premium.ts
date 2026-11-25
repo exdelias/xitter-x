@@ -9,6 +9,12 @@
 // the plan ends or drops to Basic; a badge staff gave, or an organisation's or
 // government's, is never touched. Decisions reach the account as a staff
 // message (its Notifications tab and Settings > Notices).
+//
+// An account that cancels keeps its plan to the end of the period it is in:
+// a plan with an end date runs to it; one without runs month to month from
+// the day it started, so it ends at the end of the current month. Until
+// then the account can keep the plan after all. Staff ending a plan ends it
+// at once.
 
 import { sql } from "./db";
 import { newId } from "./ids";
@@ -48,9 +54,16 @@ const cleanText = (v: unknown, what: string) => {
 	return text || null;
 };
 
+// The end of the month-long period a plan without an end date is in: the
+// first monthly anniversary of its start that is still ahead. A function, as
+// one SQL fragment object can't go into two queries.
+const periodEnd = () => sql`premium_since + ((extract(year from age(now(), premium_since)) * 12 + extract(month from age(now(), premium_since)))::int + 1) * interval '1 month'`;
+
+// `period_end`: when the plan would end if cancelled now
 export async function planOf(userId: string) {
-	const [u] = await sql`select premium_tier as tier, premium_since as since, premium_until as until, premium_checkmark as checkmark from users where id = ${userId}::bigint`;
-	return u?.tier ? (u as { tier: Tier; since: Date; until: Date | null; checkmark: boolean }) : null;
+	const [u] = await sql`select premium_tier as tier, premium_since as since, premium_until as until, premium_checkmark as checkmark, premium_cancel_at as cancel_at,
+		coalesce(premium_until, ${periodEnd()}) as period_end from users where id = ${userId}::bigint`;
+	return u?.tier ? (u as { tier: Tier; since: Date; until: Date | null; checkmark: boolean; cancel_at: Date | null; period_end: Date }) : null;
 }
 
 export async function requestsOf(userId: string, limit = 10) {
@@ -90,14 +103,15 @@ async function setPlan(tx: Db, userId: string, tier: Tier, end: Date | null) {
 			shop_verified_until = null, premium_checkmark = true where id = ${userId}::bigint`;
 	else if (!TIERS[tier].checkmark && u.premium_checkmark)
 		await tx`update users set verified_type = null, verified_at = null, premium_checkmark = false where id = ${userId}::bigint`;
-	await tx`update users set premium_tier = ${tier}, premium_since = case when premium_tier is null then now() else premium_since end, premium_until = ${end}
-		where id = ${userId}::bigint`;
+	// a new decision from staff, or an approved switch, undoes a cancellation
+	await tx`update users set premium_tier = ${tier}, premium_since = case when premium_tier is null then now() else premium_since end, premium_until = ${end},
+		premium_cancel_at = null where id = ${userId}::bigint`;
 }
 
 async function endPlan(tx: Db, userId: string) {
 	await tx`update users set verified_type = case when premium_checkmark and verified_type = 'blue' then null else verified_type end,
 		verified_at = case when premium_checkmark and verified_type = 'blue' then null else verified_at end,
-		premium_tier = null, premium_since = null, premium_until = null, premium_checkmark = false where id = ${userId}::bigint`;
+		premium_tier = null, premium_since = null, premium_until = null, premium_checkmark = false, premium_cancel_at = null where id = ${userId}::bigint`;
 }
 
 const checkEnd = (end: Date | null) => {
@@ -147,20 +161,36 @@ export async function grantPlan(actorId: string, userId: string, tier: unknown, 
 	});
 }
 
-// the account cancels its own plan, or staff end it; it ends at once
-export async function endPremium(userId: string, actorId: string | null) {
+// the account cancels its plan: it ends when the period it is in does
+export async function cancelPremium(userId: string): Promise<Date> {
+	const [u] = await sql`update users set premium_cancel_at = coalesce(premium_until, ${periodEnd()})
+		where id = ${userId}::bigint and premium_tier is not null and premium_cancel_at is null returning premium_cancel_at`;
+	if (u) return u.premium_cancel_at;
+	const plan = await planOf(userId);
+	throw new PremiumError(plan ? "Your plan is already cancelled." : "You have no plan to cancel.");
+}
+
+// changed its mind before the end: the plan goes on as before
+export async function keepPremium(userId: string) {
+	const rows = await sql`update users set premium_cancel_at = null where id = ${userId}::bigint and premium_tier is not null and premium_cancel_at > now() returning id`;
+	if (!rows.length) throw new PremiumError("Your plan isn't cancelled.");
+}
+
+// staff end a plan, at once
+export async function endPremium(userId: string, actorId: string) {
 	await sql.begin(async (tx) => {
 		const [u] = await tx`select premium_tier from users where id = ${userId}::bigint for update`;
-		if (!u?.premium_tier) throw new PremiumError(actorId ? "That account has no plan." : "You have no plan to cancel.");
+		if (!u?.premium_tier) throw new PremiumError("That account has no plan.");
 		await endPlan(tx, userId);
-		if (actorId) await message(tx, userId, actorId, `Your ${TIERS[u.premium_tier as Tier].name} plan was ended by staff.`);
+		await message(tx, userId, actorId, `Your ${TIERS[u.premium_tier as Tier].name} plan was ended by staff.`);
 	});
 }
 
-// plans whose end date has passed; run every minute (server.ts)
+// plans whose end date, or the end of a cancelled one's period, has passed; run every minute (server.ts)
 export async function expirePremium() {
 	const ended = await sql.begin(async (tx) => {
-		const rows = await tx`select id::text, premium_tier from users where premium_until is not null and premium_until <= now() for update skip locked`;
+		const rows = await tx`select id::text, premium_tier from users where (premium_until <= now() or premium_cancel_at <= now()) and premium_tier is not null
+			for update skip locked`;
 		for (const r of rows) {
 			await endPlan(tx, r.id);
 			await message(tx, r.id, null, `Your ${TIERS[r.premium_tier as Tier]?.name ?? "Premium"} plan has ended.`);
@@ -175,7 +205,7 @@ export async function premiumOverview() {
 	const [requests, members, decided] = await Promise.all([
 		sql`select r.id::text, r.tier, r.note, r.created_at, u.id::text as user_id, u.screen_name, u.name, u.verified_type, u.premium_tier as current_tier
 			from premium_requests r join users u on u.id = r.user_id where r.status = 'pending' order by r.id limit 200`,
-		sql`select id::text as user_id, screen_name, name, premium_tier as tier, premium_since as since, premium_until as until, premium_checkmark as checkmark, verified_type
+		sql`select id::text as user_id, screen_name, name, premium_tier as tier, premium_since as since, premium_until as until, premium_checkmark as checkmark, premium_cancel_at as cancel_at, verified_type
 			from users where premium_tier is not null order by premium_since desc, id limit 500`,
 		sql`select r.id::text, r.tier, r.status, r.reason, r.reviewed_at, u.screen_name, s.screen_name as reviewer
 			from premium_requests r join users u on u.id = r.user_id left join users s on s.id = r.reviewed_by
