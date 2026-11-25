@@ -19,6 +19,7 @@ import { communityObjects } from "./community-model";
 import { webSource } from "./platforms";
 import { pollCard, pollsByIds } from "./polls";
 import { toUser, userCols, usersByIds } from "./users";
+import { postCondition } from "./search";
 import { lookupRemoteUser } from "./federation-sync";
 import { mentionsIn, saveMentions } from "./mentions";
 import { cleanText } from "./text-clean";
@@ -494,6 +495,24 @@ export async function folderPosts(viewerId: string, folderId: string, limit = 10
 	const page = rows.slice(0, limit);
 	const last = page.at(-1);
 	return { posts: await hydrate(viewerId, page.map(toRow)), ...(more && last ? { next: { at: last.folder_created_at, id: String(last.id) } } : {}) };
+}
+
+// the viewer's bookmarks that match a search (search.ts's query language),
+// newest bookmark first; paged like a folder
+export async function searchBookmarks(viewerId: string, query: string, limit = 100, before?: { at: string; id: string }): Promise<{ posts: PostRow[]; next?: { at: string; id: string } }> {
+	const cond = postCondition(query, viewerId);
+	if (!cond) return { posts: [] };
+	const rows = await sql`with page as (${select(viewerId)}
+		join bookmarks b on b.post_id = p.id and b.user_id = ${viewerId}::bigint
+		where ${cond} ${before ? sql`and (b.created_at, b.post_id) < (${before.at}::timestamptz, ${before.id}::bigint)` : sql``}
+		order by b.created_at desc, b.post_id desc limit ${limit + 1})
+		select page.*, b.created_at::text as bookmarked_at from page
+		join bookmarks b on b.post_id = page.id and b.user_id = ${viewerId}::bigint
+		order by b.created_at desc, b.post_id desc`;
+	const more = rows.length > limit;
+	const page = rows.slice(0, limit);
+	const last = page.at(-1);
+	return { posts: await hydrate(viewerId, page.map(toRow)), ...(more && last ? { next: { at: last.bookmarked_at, id: String(last.id) } } : {}) };
 }
 
 export async function likedPosts(viewerId: string, userId: string, limit = 100): Promise<PostRow[]> {

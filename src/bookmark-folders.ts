@@ -1,20 +1,21 @@
 // Bookmark folders: named groups of the viewer's bookmarks. Adding a post to a
 // folder bookmarks it too; removing the bookmark leaves it in the folder's
-// list only while it stays bookmarked.
+// list only while it stays bookmarked. Also the search box over all bookmarks
+// and "Clear all bookmarks".
 import type { Viewer } from "./auth";
 import { sql } from "./db";
 import { isId, newId } from "./ids";
 import { cursorEntry, tweetEntry } from "./model";
 import { PUBLIC_ORIGIN } from "./config";
 import { mediaUrl, posterUrl } from "./media";
-import { PostError, folderPosts, originalPostId, setMark } from "./posts";
+import { PostError, folderPosts, originalPostId, searchBookmarks, setMark } from "./posts";
 
 type Vars = Record<string, any>;
 const MAX_FOLDERS = 25;
 
 function readCursor(value: unknown): { at: string; id: string; sort: string } | undefined {
 	if (value === undefined || value === null || value === "") return undefined;
-	if (typeof value !== "string" || value.length > 300) throw new PostError("Invalid folder cursor.", 214);
+	if (typeof value !== "string" || value.length > 300) throw new PostError("Invalid cursor.", 214);
 	try {
 		const cursor = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
 		// Preserve Postgres microseconds: converting to Date would skip entries
@@ -25,8 +26,20 @@ function readCursor(value: unknown): { at: string; id: string; sort: string } | 
 		if (new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) !== cursor.at.slice(0, 10)) throw new Error("cursor");
 		return cursor;
 	} catch {
-		throw new PostError("Invalid folder cursor.", 214);
+		throw new PostError("Invalid cursor.", 214);
 	}
+}
+
+// a page of posts with the cursor to the next one, in the sort order the
+// client keeps between pages
+function page(posts: Parameters<typeof tweetEntry>[0][], next: { at: string; id: string } | undefined, before: { sort: string } | undefined) {
+	const base = BigInt(before?.sort ?? newId());
+	const entries: unknown[] = posts.map((p, i) => tweetEntry(p, (base - BigInt(i) - 1n).toString()));
+	if (next) {
+		const sort = (base - BigInt(posts.length) - 2n).toString();
+		entries.push(cursorEntry("Bottom", Buffer.from(JSON.stringify({ ...next, sort })).toString("base64url"), sort));
+	}
+	return { timeline: { instructions: [{ type: "TimelineAddEntries", entries }], responseObjects: {} } };
 }
 
 const folderId = (vars: Vars) => {
@@ -108,12 +121,22 @@ export const bookmarkFolderHandlers = {
 		const f = await mine(v.id, folderId(vars));
 		const before = readCursor(vars.cursor);
 		const { posts, next } = await folderPosts(v.id, f.id, 100, before);
-		const base = BigInt(before?.sort ?? newId());
-		const entries: unknown[] = posts.map((p, i) => tweetEntry(p, (base - BigInt(i) - 1n).toString()));
-		if (next) {
-			const sort = (base - BigInt(posts.length) - 2n).toString();
-			entries.push(cursorEntry("Bottom", Buffer.from(JSON.stringify({ ...next, sort })).toString("base64url"), sort));
-		}
-		return { data: { bookmark_collection_timeline: { timeline: { instructions: [{ type: "TimelineAddEntries", entries }], responseObjects: {} } } } };
+		return { data: { bookmark_collection_timeline: page(posts, next, before) } };
+	},
+	// the search box on Bookmarks and on the folders list: all bookmarks, folders or not
+	BookmarkSearchTimeline: async (v: Viewer, vars: Vars) => {
+		const query = typeof vars.rawQuery === "string" ? vars.rawQuery.slice(0, 500) : "";
+		const before = readCursor(vars.cursor);
+		const count = Math.min(Math.max(Number(vars.count) || 20, 1), 100);
+		const { posts, next } = await searchBookmarks(v.id, query, count, before);
+		return { data: { search_by_raw_query: { bookmarks_search_timeline: page(posts, next, before) } } };
+	},
+	// "Clear all bookmarks"; the folders stay, empty
+	BookmarksAllDelete: async (v: Viewer) => {
+		await sql.begin(async (tx) => {
+			await tx`delete from bookmark_folder_posts where folder_id in (select id from bookmark_folders where user_id = ${v.id}::bigint)`;
+			await tx`delete from bookmarks where user_id = ${v.id}::bigint`;
+		});
+		return { data: { bookmark_all_delete: "Done" } };
 	},
 };

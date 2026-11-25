@@ -9,7 +9,8 @@ copy during setup, and it stays on that machine.
 
 ## What works
 
-- Posting, replies, quotes, reposts, likes, bookmarks (with folders), pinned
+- Posting, replies, quotes, reposts, likes, bookmarks (with folders, a search
+  box that takes X's search operators, and "Clear all Bookmarks"), pinned
   posts, pinned replies, highlights, @mentions and hashtags; editing posts, polls,
   scheduled threads (up to 26 posts), places
 - Scheduled threads publish together. Failed threads retry; permanent failures
