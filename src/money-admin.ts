@@ -10,6 +10,7 @@ import { feature, setSetting, settings } from "./settings";
 import { allows } from "./staff-permissions";
 import { SHOP_DAYS, SHOP_KINDS, shopItems } from "./money-shop";
 import { BADGE_TYPES, sniffImage } from "./media";
+import { markRewardsStart, rewardStats } from "./content-rewards";
 
 // what staff below admin may deliver from the shop's queue (admin.html hides Approve for the rest)
 export const MODERATOR_DELIVERS = ["badge", "custom_badge"];
@@ -78,7 +79,38 @@ export const moneyActions: Record<string, Action> = {
 				// what people wrote on their payments is theirs: only staff who may put payments right see it
 				recent: recent.map((r: any) => ({ ...r, amount: n(r.amount), note: allows(a.role, "money") ? r.note : "" })),
 				notes: allows(a.role, "money"),
+				rewards: { settings: settings().content_rewards, stats: await rewardStats() },
 			};
+		},
+	},
+	// Original Content Rewards (content-rewards.ts); switched on, it starts from the window running now
+	saveContentRewards: {
+		role: "admin",
+		run: async (a, b) => {
+			const whole = (v: unknown, what: string, min: number, max: number) => {
+				const n = Number(String(v ?? "").trim());
+				if (!Number.isInteger(n) || n < min || n > max) throw new AdminError(`${what} is a whole number from ${min.toLocaleString("en-US")} to ${max.toLocaleString("en-US")}.`);
+				return n;
+			};
+			const next = {
+				enabled: b.enabled === true,
+				premium_only: b.premium_only === true,
+				min_engagements: whole(b.min_engagements, "Engagements to go viral", 0, 1_000_000),
+				min_views: whole(b.min_views, "Views to go viral", 0, 1_000_000_000),
+				cents_per_engagement: cents(b.per_engagement, "The pay for an engagement", 0, 100_000),
+				cents_per_1000_views: cents(b.per_1000_views, "The pay for 1,000 views", 0, 1_000_000),
+				max_post_cents: cents(b.max_post, "The most for one post in 15 minutes", 1, 100_000_000),
+				daily_cap_cents: cents(b.daily_cap, "The most for one account in 24 hours", 1, 1_000_000_000),
+				max_post_age_hours: whole(b.max_post_age_hours, "How old a post may be (hours)", 1, 720),
+				min_account_days: whole(b.min_account_days, "How old an engaging account must be (days)", 0, 3650),
+			};
+			if (next.enabled && !next.min_engagements && !next.min_views) throw new AdminError("Set the engagements or the views a post needs to go viral.");
+			if (next.enabled && !next.cents_per_engagement && !next.cents_per_1000_views) throw new AdminError("Set what an engagement or 1,000 views pay.");
+			const starting = next.enabled && !settings().content_rewards.enabled;
+			await setSetting("content_rewards", next);
+			if (starting) await markRewardsStart();
+			await audit(a, "content_rewards_settings", null, next);
+			return { settings: next };
 		},
 	},
 	saveMoney: {

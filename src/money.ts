@@ -71,7 +71,7 @@ export async function peerHasRoom(db: typeof sql, origin: string, cents: number)
 }
 
 // the wallet's row, made with the starting balance the first time
-async function ensureWallet(userId: string, db: typeof sql = sql) {
+export async function ensureWallet(userId: string, db: typeof sql = sql) {
 	await db`insert into money_wallets (user_id, balance_cents) values (${userId}::bigint, ${economy().starting_cents})
 		on conflict (user_id) do nothing`;
 }

@@ -153,6 +153,22 @@ const DEFAULTS = {
 	// money shop: listings are in money_shop_items; only approved announcements are shown
 	ads: { enabled: true, min_spend_cents: 500, base_cpm_cents: 20, price_scale_cents: 10_000, economy_cpm_ppm: 20, demand_share_pct: 1, max_days: 7, max_pending: 3, reject_refund_pct: 100, min_viewer_age_days: 3 },
 	money_shop: { enabled: false, announcement: null as null | { id: string; text: string; buttons: { label: string; url: string }[] } },
+	// Original Content Rewards (content-rewards.ts): every 15 minutes, posts
+	// going viral pay their authors in Equicoins. An engagement is another
+	// account liking, reposting, replying, quoting or bookmarking, once per
+	// account and post; the cents are per engagement and per 1,000 views
+	content_rewards: {
+		enabled: false,
+		premium_only: true,
+		min_engagements: 20,
+		min_views: 500,
+		cents_per_engagement: 10,
+		cents_per_1000_views: 100,
+		max_post_cents: 5_000,
+		daily_cap_cents: 20_000,
+		max_post_age_hours: 72,
+		min_account_days: 7,
+	},
 	// client-choice.ts: which web client people get when the instance serves more
 	// than one ("" for the CLIENT_DIR build), and whether each person may pick
 	clients: { default: process.env.DEFAULT_CLIENT ?? "", user_choice: process.env.CLIENT_CHOICE !== "off" },

@@ -56,7 +56,7 @@ export const PERMISSIONS: Record<string, Permission> = {
 	// stack traces show the server's paths and internals
 	errors: { group: "Instance", label: "See and resolve server errors", role: "admin", actions: ["errors", "resolveErrors"] },
 	mail: { group: "Instance", label: "Send test mail and digests", role: "admin", actions: ["sendTestMail", "runMailDigests"] },
-	money: { group: "Instance", label: "Change Equicoins settings, adjust balances and reverse payments, open the shop and manage its listings", role: "admin", actions: ["saveMoney", "adjustMoney", "reverseTransfer", "saveShop", "reviewShopItem", "setShopItem", "setRemoteShopItem", "clearShopAnnouncement"] },
+	money: { group: "Instance", label: "Change Equicoins settings and Original Content Rewards, adjust balances and reverse payments, open the shop and manage its listings", role: "admin", actions: ["saveMoney", "saveContentRewards", "adjustMoney", "reverseTransfer", "saveShop", "reviewShopItem", "setShopItem", "setRemoteShopItem", "clearShopAnnouncement"] },
 	// delivering anything beyond a badge (a checkmark, an announcement, a hashflag, ...) stays with admins, see money-admin.ts
 	ads: { group: "Instance", label: "Review ads: approve them, reject them with a partial refund, or stop them with a full refund", role: "moderator", actions: ["reviewAd", "stopAd"] },
 	money_shop: { group: "Instance", label: "Equicoins shop: list items, review imported listings, deliver or refund badge requests", role: "moderator", actions: ["createShopItem", "reviewRemoteShopItem", "reviewShopOrder"] },

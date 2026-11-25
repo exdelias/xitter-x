@@ -174,6 +174,18 @@ copy during setup, and it stays on that machine.
     - Approved listings are shared with peer instances, where they stay hidden
       until that instance's staff approve them too; buying across instances
       isn't available yet
+  - Original Content Rewards (off by default; Admin > Equicoins): every 15
+    minutes, posts and replies going viral pay their authors straight into
+    their wallets. A post goes viral when enough other accounts liked,
+    reposted, replied to, quoted or bookmarked it, or saw it, in those 15
+    minutes; it earns per engagement and per 1,000 views, up to a most per
+    post and per account each day. Each account counts once per post, and
+    only active local accounts some days old count; ads, hidden, limited and
+    Circle posts don't earn, and by default only accounts with a Premium
+    plan do. Each 15 minutes is paid once, even across restarts, and missed
+    ones are caught up an hour back. Authors see each payout in their
+    activity, on Equicoins > Rewards and in Notifications.
+    `bun scripts/test-content-rewards.ts` checks it
   - The first time Equicoins opens, each account accepts a disclaimer: the money
     is virtual, has no real-world value and can't be exchanged
   - Off by default: Admin > Settings, feature switches turns it on. Switched

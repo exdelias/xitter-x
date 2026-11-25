@@ -1984,3 +1984,36 @@ create table if not exists premium_requests (
 create unique index if not exists premium_requests_pending_idx on premium_requests (user_id) where status = 'pending';
 create index if not exists premium_requests_user_idx on premium_requests (user_id, id desc);
 create index if not exists premium_requests_status_idx on premium_requests (status, id);
+
+-- Original Content Rewards (content-rewards.ts): each 15-minute window is
+-- paid once; its row is written in the same transaction as its payouts
+create table if not exists content_reward_runs (
+	window_end timestamptz primary key,
+	posts int not null default 0,
+	cents bigint not null default 0,
+	-- written when the program is switched on, so it starts from then
+	marker boolean not null default false,
+	created_at timestamptz not null default now()
+);
+create table if not exists content_rewards (
+	id bigint primary key,
+	window_end timestamptz not null references content_reward_runs (window_end) on delete cascade,
+	post_id bigint references posts (id) on delete set null,
+	author_id bigint not null references users (id) on delete cascade,
+	engagements int not null,
+	views int not null,
+	cents int not null check (cents > 0),
+	created_at timestamptz not null default now(),
+	unique (window_end, post_id)
+);
+create index if not exists content_rewards_author_idx on content_rewards (author_id, created_at desc);
+create index if not exists content_rewards_created_idx on content_rewards (created_at);
+-- the accounts a paid post was paid for: each counts once per post, so
+-- unliking and liking again earns nothing more
+create table if not exists content_reward_engagers (
+	post_id bigint not null references posts (id) on delete cascade,
+	user_id bigint not null references users (id) on delete cascade,
+	primary key (post_id, user_id)
+);
+-- the reward job reads a window of bookmarks by time, as it does likes and reposts
+create index if not exists bookmarks_created_idx on bookmarks (created_at);

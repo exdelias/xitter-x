@@ -58,9 +58,10 @@ export async function economyNow(db: typeof sql = sql): Promise<Economy> {
 		(select coalesce(sum(balance_cents), 0) from money_wallets w join users u on u.id = w.user_id where u.instance is null)::bigint as supply,
 		(select count(*) from money_wallets where created_at > now() - interval '7 days')::bigint as wallets,
 		(select coalesce(sum(cents), 0) from money_like_rewards where created_at > now() - interval '7 days')::bigint as likes,
+		(select coalesce(sum(cents), 0) from content_rewards where created_at > now() - interval '7 days')::bigint as rewards,
 		(select coalesce(sum(budget_cents - spent_cents), 0) from ads where status in ('pending', 'running', 'paused'))::bigint as held`;
 	const supplyCents = Number(row.supply) + Number(row.held);
-	const weeklyMintCents = Number(row.wallets) * settings().money.starting_cents + Number(row.likes);
+	const weeklyMintCents = Number(row.wallets) * settings().money.starting_cents + Number(row.likes) + Number(row.rewards);
 	const value = { supplyCents, weeklyMintCents, projectedCents: supplyCents + Math.round((weeklyMintCents * settings().ads.max_days) / 7) };
 	economyCache = { at: Date.now(), value };
 	return value;

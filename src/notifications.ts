@@ -111,6 +111,13 @@ async function items(viewerId: string, opts: { before?: number; after?: number; 
 				out.push({ kind: "money", key: `gift-${r.id}`, at: ms(r.at), users: [String(r.user_id)], path: "/i/xmoney/shop", text: `gave you “${clip(r.item_name)}”` });
 			for (const r of declined)
 				out.push({ kind: "money", key: `declined-${r.id}`, at: ms(r.at), users: [String(r.payer_id)], path: `/i/xmoney/r/${r.id}`, text: `declined your request for ${formatCents(Number(r.amount_cents))}` });
+			// Original Content Rewards (content-rewards.ts): one for each 15 minutes that paid, at the time it was paid
+			const earned = await sql`select c.window_end, max(c.created_at) as at, count(*)::int as posts, sum(c.cents)::bigint as cents from content_rewards c
+				where c.author_id = ${viewerId}::bigint group by c.window_end having max(c.created_at) >= ${lo} and max(c.created_at) < ${hi}
+				order by at desc limit ${opts.limit}`;
+			for (const r of earned)
+				out.push({ kind: "staff", key: `reward-${ms(r.window_end)}`, at: ms(r.at), url: "/i/xmoney/rewards",
+					text: `Your ${r.posts === 1 ? "post" : `${r.posts} posts`} going viral earned ${formatCents(Number(r.cents))} from Original Content Rewards.` });
 		}
 		const asked = await sql`select o.id, o.screen_name, r.created_at as at from affiliation_requests r join users o on o.id = r.org_id
 			where r.user_id = ${viewerId}::bigint and o.allow_affiliates and r.created_at >= ${lo} and r.created_at < ${hi} order by r.created_at desc limit ${opts.limit}`;
