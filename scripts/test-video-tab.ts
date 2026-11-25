@@ -123,6 +123,14 @@ check(im.ids.includes(popular) && new Set(im.ids).size === im.ids.length, "and g
 im = await immersive(hidden);
 check(!im.ids.includes(hidden), "a hidden post tapped by id doesn't open in it");
 check(!(await immersive()).errors, "it answers without a tapped post too");
+const unseen = await post(a, `nobody has seen this clip ${tag}`, true);
+check((await immersive(quiet)).ids.includes(unseen), "a new video comes up in the viewer");
+const views = (await a.get("TweetResultByRestId", { tweetId: unseen }))?.data?.tweetResult?.result?.views?.count;
+check(!views || views === "0", "loading it there, behind the tapped one, doesn't count as a view", views);
+const block = (path: string) => fetch(`${origin}/i/api/1.1/blocks/${path}`, { method: "POST", headers: { ...a.headers, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ screen_name: nameB }) });
+await block("create.json");
+check(!(await immersive(quiet)).ids.includes(quiet), "a video by someone who blocked the viewer doesn't open in it by id");
+await block("destroy.json");
 const other = await post(b, `B's own clip ${tag}`, true);
 const profile = async (pinned: string) => {
 	const res = await b.get("ImmersiveProfile", { pinned_tweet_id: pinned });

@@ -1,9 +1,10 @@
 // Video (the "video" feature): X's Video screen at /i/video, and the
 // full-screen viewer a phone-sized client opens when a video is tapped, which
-// swipes on through more videos (from a profile, that account's videos). Both are lists of posts with a video, picked
-// by search.ts, so what the viewer may not see (blocks, protected accounts,
-// hidden or limited posts, Circles, federation settings) stays out the same
-// way it does in search. The client sends no cursor for either: one page each.
+// swipes on through more videos (from a profile, that account's videos). Both
+// are lists of posts with a video, picked by search.ts, so what the viewer may
+// not see (blocks, protected accounts, hidden or limited posts, Circles,
+// federation settings) stays out the same way it does in search. The client
+// sends no cursor for any of them: one page each.
 
 import type { Viewer } from "./auth";
 import { newId } from "./ids";
@@ -21,10 +22,12 @@ const IMMERSIVE = 30;
 
 const empty = { instructions: [{ type: "TimelineAddEntries", entries: [] }] };
 
-// posts with a video, in the order search gave them, leaving out `skip`
-async function videos(viewerId: string, query: string, top: boolean, limit: number, skip: Set<string> = new Set()) {
+// posts with a video, in the order search gave them, leaving out `skip`.
+// `views`: loading them counts as seeing them, as on a timeline; the viewer
+// loads 30 at once and shows one, so it doesn't count them.
+async function videos(viewerId: string, query: string, top: boolean, limit: number, skip: Set<string> = new Set(), views = true) {
 	const ids = (await searchPosts(`filter:videos ${query}`.trim(), { viewerId, top, limit: limit + skip.size })).filter((id) => !skip.has(id)).slice(0, limit);
-	const posts = await postsByIds(viewerId, ids);
+	const posts = await postsByIds(viewerId, ids, true, { views });
 	return ids.map((id) => posts.get(id)).filter((p) => !!p);
 }
 
@@ -65,15 +68,16 @@ export const videoHandlers = {
 		latest.forEach((p, i) => entries.push(tweetEntry(p, sort(i + 2))));
 		return { data: { media_tab_video_mixer_timeline: { timeline: { instructions: [{ type: "TimelineAddEntries", entries }] } } } };
 	},
-	// the full-screen viewer: the tapped post first, then other videos, trending first
+	// the full-screen viewer: the tapped post first (already seen where it was
+// tapped), then other videos, trending first
 	ImmersiveMedia: async (v: Viewer, vars: Vars) => {
 		if (!feature("video")) return { data: { immersiveMedia: { timeline: empty } } };
 		const first = await pinnedPost(v.id, vars.pinned_tweet_id);
 		const since = new Date(Date.now() - 7 * DAY).toISOString().slice(0, 10);
 		const skip = new Set(first ? [first.id] : []);
-		const trending = await videos(v.id, `since:${since}`, true, IMMERSIVE, skip);
+		const trending = await videos(v.id, `since:${since}`, true, IMMERSIVE, skip, false);
 		for (const p of trending) skip.add(p.id);
-		const rest = trending.length < IMMERSIVE ? await videos(v.id, "", false, IMMERSIVE - trending.length, skip) : [];
+		const rest = trending.length < IMMERSIVE ? await videos(v.id, "", false, IMMERSIVE - trending.length, skip, false) : [];
 		return { data: { immersiveMedia: { timeline: list([...(first ? [first] : []), ...trending, ...rest]) } } };
 	},
 	// the same viewer opened from a profile: the tapped post, then the rest of
@@ -82,7 +86,7 @@ export const videoHandlers = {
 		if (!feature("video")) return { data: { immersiveProfile: { timeline: empty } } };
 		const first = await pinnedPost(v.id, vars.pinned_tweet_id);
 		if (!first) return { data: { immersiveProfile: { timeline: empty } } };
-		const rest = await videos(v.id, `from:${first.author.screen_name}`, false, IMMERSIVE, new Set([first.id]));
+		const rest = await videos(v.id, `from:${first.author.screen_name}`, false, IMMERSIVE, new Set([first.id]), false);
 		return { data: { immersiveProfile: { timeline: list([first, ...rest]) } } };
 	},
 };
