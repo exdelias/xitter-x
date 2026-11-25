@@ -24,13 +24,15 @@ export function weightedLength(text: string): number {
 // timelines show a preview with "Show more"
 export const SHORT_POST = 280;
 
-// how long a post this account may write, by its badge (Admin > Settings)
-export function postLimitFor(verifiedType: string | null | undefined): number {
+// how long a post this account may write, by its badge (Admin > Settings);
+// any Premium plan (premium.ts) gives at least the blue limit
+export function postLimitFor(verifiedType: string | null | undefined, premiumTier?: string | null): number {
 	const l = settings().post_limits;
-	if (verifiedType === "government" || verifiedType === "government_individual") return l.government;
-	if (verifiedType === "business") return l.business;
-	if (verifiedType === "blue") return l.blue;
-	return l.none;
+	const plan = premiumTier ? l.blue : l.none;
+	if (verifiedType === "government" || verifiedType === "government_individual") return Math.max(l.government, plan);
+	if (verifiedType === "business") return Math.max(l.business, plan);
+	if (verifiedType === "blue") return Math.max(l.blue, plan);
+	return plan;
 }
 
 // the start of a long post that timelines show, cut at a word when one is near

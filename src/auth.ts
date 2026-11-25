@@ -39,6 +39,8 @@ export type User = {
 	translator?: "translator" | "moderator" | "approver" | null;
 	// when the badge was given ("Verified since")
 	verified_at?: Date | null;
+	// the Premium plan it holds (premium.ts): basic, premium or premium_plus
+	premium_tier?: string | null;
 	// `since`: when the account joined the organisation
 	org?: { id: string; name: string; screen_name: string; avatar_url: string | null; since?: string } | null;
 	// the other organisations it is an affiliate of, up to three, after `org`
@@ -186,7 +188,7 @@ export function parseCookies(req: Request): Record<string, string> {
 
 import { requestCountry } from "./login-history";
 
-const viewerCols = () => sql`u.id, u.screen_name, u.name, u.bio, u.location, u.website, u.avatar_url, u.banner_url, u.verified_type, u.flag, u.pronouns, u.status, u.role, u.protected, u.language, u.country, u.created_at, u.instance,
+const viewerCols = () => sql`u.id, u.screen_name, u.name, u.bio, u.location, u.website, u.avatar_url, u.banner_url, u.verified_type, u.premium_tier, u.flag, u.pronouns, u.status, u.role, u.protected, u.language, u.country, u.created_at, u.instance,
 	u.preferences->>'discoverable_by_email' = 'true' as discoverable_by_email,
 	u.preferences->>'classic_post_details' = 'true' as classic_post_details,
 	u.preferences->>'hide_parody_labels' = 'true' as hide_parody_labels,

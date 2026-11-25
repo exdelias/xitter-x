@@ -226,8 +226,8 @@ const MAX_EDITS = 5;
 // id and what it said before goes to post_versions.
 // the author's limit goes by their badge (textlen.ts, Admin > Settings)
 export async function checkLength(userId: string, text: string, db: typeof sql = sql) {
-	const [u] = await db`select verified_type from users where id = ${userId}::bigint`;
-	const limit = postLimitFor(u?.verified_type);
+	const [u] = await db`select verified_type, premium_tier from users where id = ${userId}::bigint`;
+	const limit = postLimitFor(u?.verified_type, u?.premium_tier);
 	if (weightedLength(text) > limit) throw new PostError(`Posts are limited to ${limit.toLocaleString("en-US")} characters.`, 186);
 }
 

@@ -1956,3 +1956,28 @@ alter table ads add column if not exists name text;
 alter table ads add column if not exists existing_post boolean not null default false;
 create index if not exists ads_post_idx on ads (post_id) where post_id is not null;
 alter table users add column if not exists allow_affiliates boolean not null default true;
+
+-- Premium (premium.ts): the plan an account holds, if any, and until when
+-- (null: no end). premium_checkmark: the blue checkmark came with the plan, so
+-- it goes when the plan does; a badge staff gave stays.
+alter table users add column if not exists premium_tier text check (premium_tier in ('basic', 'premium', 'premium_plus'));
+alter table users add column if not exists premium_since timestamptz;
+alter table users add column if not exists premium_until timestamptz;
+alter table users add column if not exists premium_checkmark boolean not null default false;
+create index if not exists users_premium_until_idx on users (premium_until) where premium_until is not null;
+-- requests for a plan, which staff approve or decline (Admin > Premium)
+create table if not exists premium_requests (
+	id bigint primary key,
+	user_id bigint not null references users (id) on delete cascade,
+	tier text not null check (tier in ('basic', 'premium', 'premium_plus')),
+	note text check (char_length(note) <= 500),
+	status text not null default 'pending' check (status in ('pending', 'approved', 'declined', 'withdrawn')),
+	reason text check (char_length(reason) <= 500),
+	reviewed_by bigint references users (id) on delete set null,
+	reviewed_at timestamptz,
+	created_at timestamptz not null default now()
+);
+-- one waiting request per account
+create unique index if not exists premium_requests_pending_idx on premium_requests (user_id) where status = 'pending';
+create index if not exists premium_requests_user_idx on premium_requests (user_id, id desc);
+create index if not exists premium_requests_status_idx on premium_requests (status, id);

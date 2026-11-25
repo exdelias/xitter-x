@@ -14,7 +14,7 @@ async function fixture() {
 		let post: any, upload: any, ids: string[];
 		if (text.startsWith("select status, deactivated_at, role from users")) return [{ status: "active", deactivated_at: null, role: null }];
 		if (text.startsWith("select count(*)::int as n from posts")) return [{ n: 0 }];
-		if (text.startsWith("select verified_type from users")) return [{ verified_type: null }];
+		if (text.startsWith("select verified_type, premium_tier from users")) return [{ verified_type: null, premium_tier: null }];
 		if (text.startsWith("select id from media where")) return [...media.values()].filter((row) => row.id === values[0] && row.user_id === values[1] && row.state === "ready" && !row.post_id);
 		if (text.startsWith("insert into posts")) {
 			post = { ...author, id: values[0], text: values[2], conversation_id: values[0], created_at: new Date(), source: "Xitter for Web", sensitive: false, like_count: 0, repost_count: 0, bookmark_count: 0, reply_count: 0, quote_count: 0, view_count: 0 };

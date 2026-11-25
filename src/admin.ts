@@ -39,6 +39,7 @@ import { oauthAppActions } from "./oauth-admin";
 import { hashflagActions } from "./hashflags";
 import { switchActions } from "./feature-switches";
 import { moneyActions } from "./money-admin";
+import { premiumActions } from "./premium-admin";
 import { adActions } from "./ads-admin";
 import { impersonateActions } from "./impersonate";
 import { AFFILIATION_LIMIT } from "./org-manage";
@@ -73,7 +74,7 @@ export const AUDIT_ACTIONS = [
 	"resolve_errors", "review_community_note_appeal", "revoke_api_tokens", "revoke_invite", "revoke_platform", "revoke_session", "revoke_strike",
 	"rollback_client", "save_automod", "save_operations", "save_security", "save_settings", "self_update", "self_update_rollback", "send_staff_message",
 	"send_test_mail", "set_allow_affiliates", "set_badge", "set_badges", "set_clients", "set_feature_switch", "set_flag", "set_never_sensitive", "set_notes_access", "set_post_counts", "set_post_date",
-	"set_post_note", "remove_post_note", "impersonate", "reveal_staff_ips", "shadow_ban", "lift_shadow_ban", "set_post_notice", "set_post_visibility", "set_profile_label", "set_remote_checkmarks", "set_role", "set_signup_mode", "set_staff_permissions",
+	"set_post_note", "remove_post_note", "premium_approve", "premium_decline", "premium_set", "premium_end", "impersonate", "reveal_staff_ips", "shadow_ban", "lift_shadow_ban", "set_post_notice", "set_post_visibility", "set_profile_label", "set_remote_checkmarks", "set_role", "set_signup_mode", "set_staff_permissions",
 	"set_status", "set_translator", "set_user_client", "set_user_counts", "sign_out", "superadmin_emergency_block", "superadmin_emergency_lift", "suspend_blocked_names",
 	"temporary_status", "unblock_oauth_app", "update_client", "upload_branding",
 ];
@@ -495,9 +496,10 @@ const ACTIONS: Record<string, Action> = {
 			const badge = b.badge || null;
 			if (badge !== null && !["blue", "business", "government", "government_individual"].includes(badge)) throw new AdminError("Unknown badge.");
 			await guard(a, id, true);
-			// verified_at: "Verified since" on the About page; a new badge type starts it again
+			// verified_at: "Verified since" on the About page; a new badge type starts it again.
+			// The badge is staff's from now on: neither the shop nor a Premium plan takes it off.
 			await sql`update users set verified_at = case when ${badge}::text is null then null when verified_type is distinct from ${badge}::text then now() else verified_at end,
-				verified_type = ${badge}, shop_verified_until = null where id = ${id}::bigint`;
+				verified_type = ${badge}, shop_verified_until = null, premium_checkmark = false where id = ${id}::bigint`;
 			await audit(a, "set_badge", id, { badge });
 			return {};
 		},
@@ -1109,6 +1111,7 @@ Object.assign(ACTIONS, oauthAppActions);
 Object.assign(ACTIONS, hashflagActions);
 Object.assign(ACTIONS, switchActions);
 Object.assign(ACTIONS, moneyActions);
+Object.assign(ACTIONS, premiumActions);
 Object.assign(ACTIONS, adActions);
 Object.assign(ACTIONS, impersonateActions);
 
@@ -1118,7 +1121,7 @@ for (const [key, p] of Object.entries(PERMISSIONS))
 		if (ACTIONS[name]?.role !== p.role) throw new Error(`Staff permission ${key}: ${name} ${ACTIONS[name] ? `needs ${ACTIONS[name].role}, not ${p.role}` : "is no action"}.`);
 
 const READS = new Set(
-	"ads federation platforms mail cards topics me staffPermissions stats users user orgs affiliates posts reports invites settings audit badges labels staffNotes staffMessages appeals handleHistory userSessions blockedNameAccounts articles media mediaAccount operations heldIdentities updateStatus health security backups archiveImports client checkClient errors inviteTree featureSwitches hashflags oauthApps stickers automodScan money".split(
+	"ads federation platforms mail cards topics me staffPermissions stats users user orgs affiliates posts reports invites settings audit badges labels staffNotes staffMessages appeals handleHistory userSessions blockedNameAccounts articles media mediaAccount operations heldIdentities updateStatus health security backups archiveImports client checkClient errors inviteTree featureSwitches hashflags oauthApps stickers automodScan money premium".split(
 		" ",
 	),
 );

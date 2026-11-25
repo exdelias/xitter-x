@@ -92,6 +92,8 @@ import { forgetRanking } from "./ranking";
 import { cardsApi, payMeApi, recentApi } from "./money";
 import { merchantRoute, moneyRoute } from "./money-page";
 import { expireShopCheckmarks } from "./money-shop";
+import { expirePremium } from "./premium";
+import { premiumRoute } from "./premium-page";
 import { restrictedPage, restrictedRefuses } from "./restricted-page";
 
 const MIME: Record<string, string> = {
@@ -397,6 +399,15 @@ setInterval(
 		}),
 	10 * 60_000,
 ).unref();
+// Premium plans end on their end date (premium.ts)
+setInterval(
+	() =>
+		expirePremium().catch((e) => {
+			console.error("premium expiry failed", e.message);
+			recordError("job", e, { path: "premium expiry" });
+		}),
+	60_000,
+).unref();
 // abandoned and expired chat attachments give their disk back
 setInterval(
 	() =>
@@ -615,6 +626,8 @@ async function route(req: Request): Promise<Response | undefined> {
 	if (viewer && !oldBuild && req.method === "GET" && req.headers.get("sec-fetch-dest") === "document" && (p === "/account/money" || p.startsWith("/account/money/"))) return Response.redirect(`/i/xmoney${p.slice("/account/money".length)}${url.search}`, 302);
 	if (viewer && !oldBuild && req.method === "GET" && req.headers.get("sec-fetch-dest") === "document" && /^\/account\/ads(\/new|\/\d{1,19})?$/.test(p)) return Response.redirect(`/i${p.slice(8)}${url.search}`, 302);
 	if (p === "/oauth/authorize") return oauthAuthorize(req, url, viewer);
+	if (viewer && !oldBuild && req.method === "GET" && req.headers.get("sec-fetch-dest") === "document" && p === "/account/premium") return Response.redirect(`/i/xpremium${url.search}`, 302);
+	if (p === "/account/premium" && viewer) return premiumRoute(req, viewer);
 	if (p === "/account/apps" && viewer) return connectedAppsRoute(req, viewer);
 	// opened on its own, the index comes up as Settings > Xitter settings, like the pages it lists
 	if ((p === "/account" || p === "/account/") && viewer && !oldBuild && req.method === "GET" && req.headers.get("sec-fetch-dest") === "document") return Response.redirect("/settings/xitter", 302);

@@ -270,10 +270,10 @@ export async function runImport(userId: string) {
 	await progress(userId, { state: "running", error: null, waiting_until: null });
 	try {
 		if (!feature("archive_import")) throw new ImportError("Importing from X was turned off on this instance.");
-		const me = async () => (await sql`select role, status, deactivated_at, verified_type from users where id = ${userId}::bigint`)[0];
+		const me = async () => (await sql`select role, status, deactivated_at, verified_type, premium_tier from users where id = ${userId}::bigint`)[0];
 		const author = await me();
 		if (!canPost(author)) throw new ImportError("Your account can't post right now, so it can't import posts either.");
-		const limit = postLimitFor(author.verified_type);
+		const limit = postLimitFor(author.verified_type, author.premium_tier);
 		const zip = await Zip.open(fileOf(userId));
 		const [account] = (await readJs(zip, /^data\/account\.js$/)).map((a) => a.account ?? a);
 		// long posts: the tweet holds the first 280 characters, the note the rest

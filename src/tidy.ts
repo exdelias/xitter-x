@@ -274,7 +274,7 @@ export const TIDY_SCRIPT = `(function(){
 	var OWN="/settings/xitter/";
 	// the side bar's own entries (where "nav") open on a path of the client's
 	// own instead, which it answers with its not-found page in the main column
-	var FULL={"/i/xmoney":"/account/money","/i/ads":"/account/ads","/i/circles":"/account/circle"};
+	var FULL={"/i/xmoney":"/account/money","/i/ads":"/account/ads","/i/circles":"/account/circle","/i/xpremium":"/account/premium"};
 	// and the pages under it (a payment: /i/xmoney/p/<id>)
 	function fullOf(p){for(var k in FULL)if(p===k||p.indexOf(k+"/")===0)return FULL[k]+p.slice(k.length)}
 	function full(p){for(var k in FULL)if(p===FULL[k]||p.indexOf(FULL[k]+"/")===0)return k+p.slice(FULL[k].length)}
@@ -381,6 +381,9 @@ export const TIDY_SCRIPT = `(function(){
 		if(p.indexOf("/i/flow/add_email")===0)go(OWN+"email",true);
 		// Settings > Automation's "Set up account automation" (automation.ts)
 		if(p.indexOf("/i/flow/enable_automated_account")===0)go(OWN+"automation",true);
+		// X's Premium sign-up is a checkout on grok.com, and its plan settings read
+		// from there: our Premium page instead, where staff approve plans (premium.ts)
+		if(p==="/i/premium_sign_up"||p==="/i/premium"||p.indexOf("/i/premium/")===0||p==="/i/verified-choose"||p==="/i/verified-get-verified"||p==="/settings/premium"||p.indexOf("/settings/subscription")===0||p==="/settings/manage_subscriptions")go("/i/xpremium",true);
 		// Settings > Security's passkey screens and X's add-a-passkey flow talk to its servers (passkeys.ts)
 		if(/passkey/i.test(p)&&(p.indexOf("/settings/")===0||p.indexOf("/i/flow/")===0))go(OWN+"passkeys",true);
 	}
@@ -686,8 +689,9 @@ export const TIDY_SCRIPT = `(function(){
 			while(box.parentElement&&box.parentElement.children.length===1)box=box.parentElement;
 			box.style.display="none";
 		});
-		// the verified-badge popup's "Upgrade to get verified": nothing to upgrade to here
-		document.querySelectorAll('a,button,[role="button"]').forEach(function(b){
+		// the verified-badge popup's "Upgrade to get verified": nothing to upgrade to
+		// unless Premium is offered (then its link opens our Premium page)
+		if(!T.premium)document.querySelectorAll('a,button,[role="button"]').forEach(function(b){
 			if(b.innerText&&b.innerText.trim()==="Upgrade to get verified")b.style.display="none";
 		});
 		// upsell banners: the box around a Premium link, up to whatever else shares its column

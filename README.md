@@ -181,6 +181,19 @@ copy during setup, and it stays on that machine.
     earnings and its notifications go away, but cards already in posts still
     show. `bun scripts/test-money.ts` checks it
 - Polls with a photo on each choice
+- Premium (off by default; Admin > Settings, feature switches): nothing is
+  paid. Accounts ask for Basic, Premium or Premium+ on their Premium page,
+  which the client's Premium links and "Subscribe" buttons open (X's own
+  sign-up is a checkout on grok.com), with an optional note for staff, and
+  can withdraw the request, switch plans or cancel. Staff approve requests
+  for 30 days, 90 days, a year, until a date or with no end, or decline them
+  with a reason (Admin > Premium), and can give, change and end plans
+  directly; each decision reaches the account as a message in Notifications,
+  and plans end by themselves on their end date. Every plan gives longer
+  posts (the blue limit) and a boost for its replies in conversations;
+  Premium and Premium+ also give the blue checkmark, which goes with the
+  plan, while a badge staff gave or an organisation's stays. Staff
+  permissions: Premium requests, Premium plans; all in the audit log
 - Video (on by default; Admin > Settings, feature switches): X's Video
   screen at `/i/video`, with trending videos of the last week, videos from
   people you follow and the newest videos; on a phone, tapping a video opens

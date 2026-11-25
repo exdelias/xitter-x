@@ -20,7 +20,7 @@ export const FEATURES = {
 	scheduling: "Scheduling in the composer",
 	grok: "Grok",
 	image_gen: "Grok image generation",
-	premium: "Premium and verification upsells",
+	premium: "Premium: accounts ask for a plan on the Premium page and staff approve it (Admin > Premium); also the client's Premium links and upsells",
 	calls: "Calls",
 	history: "History",
 	video: "Video: the Video screen at /i/video, and on phones a full-screen viewer that swipes from a tapped video on through more videos",

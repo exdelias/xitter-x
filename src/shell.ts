@@ -188,7 +188,7 @@ const overrideSwitches = () => Object.fromEntries(Object.entries(settings().swit
 const longPostSwitches = (user: User | null) => ({
 	longform_notetweets_consumption_enabled: { value: true },
 	longform_notetweets_composition_without_claims_enabled: { value: true },
-	longform_notetweets_max_weighted_character_length: { value: postLimitFor(user?.verified_type) },
+	longform_notetweets_max_weighted_character_length: { value: postLimitFor(user?.verified_type, user?.premium_tier) },
 });
 // the build's, then Xitter's, then an admin's; the long-post limit is the viewer's own
 const clientSwitches = (config: Record<string, unknown>, user: User | null = null) => ({

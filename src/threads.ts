@@ -1,4 +1,5 @@
 import type { PostRow } from "./model";
+import { replyBoost } from "./premium";
 
 const CHAIN_SIZE = 6;
 const SELF_THREAD_SIZE = 50;
@@ -8,7 +9,8 @@ export const MORE_PER_PAGE = 20;
 export type Placed = { post: PostRow; parent?: string; indent?: boolean };
 export type Thread = { root: PostRow; shown: Placed[]; rest: Placed[] };
 
-const engagement = (p: PostRow) => p.like_count + p.reply_count;
+// a reply's Premium plan counts as a few extra likes (premium.ts)
+const engagement = (p: PostRow) => p.like_count + p.reply_count + replyBoost(p.author.premium_tier);
 const older = (a: PostRow, b: PostRow) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1);
 
 export function conversationThreads(focal: PostRow, below: PostRow[], pinned: string | null) {
