@@ -181,6 +181,11 @@ copy during setup, and it stays on that machine.
     earnings and its notifications go away, but cards already in posts still
     show. `bun scripts/test-money.ts` checks it
 - Polls with a photo on each choice
+- Video (on by default; Admin > Settings, feature switches): X's Video
+  screen at `/i/video`, with trending videos of the last week, videos from
+  people you follow and the newest videos; on a phone, tapping a video opens
+  it full screen and swiping goes on through more videos (from a profile,
+  that account's)
 - YouTube links (videos, Shorts, live, youtu.be, with `t=` start times) become
   player cards: the thumbnail comes through `EMBED_PROXY`, and pressing play
   loads the video in place from youtube-nocookie.com

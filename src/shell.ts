@@ -148,6 +148,11 @@ const ownSwitches = (): Record<string, { value: unknown }> => ({
 	// the side bar has one slot for both: History (its Bookmarks tab inside) when
 	// the feature is on, the client's own Bookmarks link when it is off
 	responsive_web_history_screen_enabled: { value: feature("history") },
+	// Video (video-tab.ts): the /i/video screen, and the full-screen viewer a
+	// narrow window opens on a tapped video, with its previous and next buttons
+	rweb_video_screen_enabled: { value: feature("video") },
+	explore_relaunch_enable_immersive_web: { value: feature("video") },
+	explore_relaunch_enable_immersive_web_navigation_button: { value: feature("video") },
 	// "Generate with Grok" beside Upload in the media pickers (composer, article
 	// cover); with only the picker switch off, the composer grows its own Grok button
 	...(feature("image_gen") ? {} : {

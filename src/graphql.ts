@@ -8,6 +8,7 @@ import { automationHandlers } from "./automation";
 import { GrokError, grokHandlers } from "./grok";
 import { analyticsHandlers } from "./analytics";
 import { bookmarkFolderHandlers } from "./bookmark-folders";
+import { videoHandlers } from "./video-tab";
 import { communityHandlers } from "./communities";
 import { conversationSettings, replyControl, ReplyControlError } from "./reply-controls";
 import { countryDisplayName, countryName, regionName } from "./countries";
@@ -1180,6 +1181,7 @@ Object.assign(handlers, scheduledHandlers);
 Object.assign(handlers, gifHandlers);
 Object.assign(handlers, analyticsHandlers);
 Object.assign(handlers, delegationHandlers);
+Object.assign(handlers, videoHandlers);
 
 // The signed-in account. The page carries it already (shell.ts); the client
 // asks when it builds its view of an account a delegate switches into, and
