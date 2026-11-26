@@ -183,6 +183,7 @@ create unique index if not exists moderation_appeals_open_user_idx on moderation
 alter table posts add column if not exists source text not null default 'Xitter for Web';
 alter table users add column if not exists notes_writer boolean not null default false;
 alter table users add column if not exists shadow_banned boolean not null default false;
+alter table users add column if not exists reports_blocked boolean not null default false;
 alter table users add column if not exists notes_alias text not null default ('Contributor-' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
 create unique index if not exists users_notes_alias_key on users(notes_alias);
 create table if not exists client_platforms (
@@ -440,7 +441,7 @@ create index if not exists affiliations_user_created_idx on affiliations (user_i
 create or replace function affiliations_cap() returns trigger language plpgsql as $$
 begin
 	perform 1 from users where id = new.user_id for update;
-	if (select count(*) from affiliations where user_id = new.user_id) >= 4 then
+	if (select count(*) from affiliations where user_id = new.user_id) >= 10 then
 		raise exception 'affiliation_limit' using errcode = 'P0001';
 	end if;
 	return new;
