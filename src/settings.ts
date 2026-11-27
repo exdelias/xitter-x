@@ -177,7 +177,6 @@ const DEFAULTS = {
 		cents_per_1000_views: 100,
 		max_post_cents: 5_000,
 		max_post_age_hours: 72,
-		min_account_days: 7,
 	},
 	// client-choice.ts: which web client people get when the instance serves more
 	// than one ("" for the CLIENT_DIR build), and whether each person may pick

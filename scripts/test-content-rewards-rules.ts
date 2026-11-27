@@ -1,7 +1,7 @@
 // Original Content Rewards' rules that need no database: which 15-minute
 // windows to pay, when a post counts as viral, and what it earns (content-rewards.ts).
 import { expect, test } from "bun:test";
-import { WINDOW_MS, isViral, payoutFor, rateFactor, windowEndBefore, windowsToRun } from "../src/content-rewards";
+import { WINDOW_MS, creditAfter, fresh, isViral, payoutFor, rateFactor, windowEndBefore, windowsToRun } from "../src/content-rewards";
 import { settings } from "../src/settings";
 
 const at = (iso: string) => Date.parse(iso);
@@ -53,4 +53,24 @@ test("the engagement rate scales the pay from half to double", () => {
 	expect(payoutFor(100, 1_000, r)).toBe(1_650);
 	expect(payoutFor(20, 2_000, r)).toBe(240);
 	expect(rateFactor(50, 1_000, { ...r, rate_bonus: false })).toBe(1);
+});
+
+test("a post counts what it shows, and each gain earns once", () => {
+	const zero = { likes: 0, reposts: 0, replies: 0, quotes: 0, bookmarks: 0, views: 0 };
+	const shown = { likes: 1_000, reposts: 20, replies: 30, quotes: 0, bookmarks: 50, views: 10_000 };
+	const f = fresh(shown, zero);
+	expect(f.engagements).toBe(1_100);
+	expect(f.views).toBe(10_000);
+	// all paid for: everything credited, nothing new next time
+	const all = creditAfter(shown, zero, f.d, 1);
+	expect(all).toEqual(shown);
+	expect(fresh(shown, all).engagements).toBe(0);
+	// a tenth paid for: the rest stays to earn
+	const part = creditAfter(shown, zero, f.d, 0.1);
+	expect(part.likes).toBe(100);
+	expect(fresh(shown, part).engagements).toBe(990);
+	// a count lowered, then raised back, earns nothing twice
+	expect(fresh({ ...shown, likes: 400 }, all).engagements).toBe(0);
+	expect(fresh(shown, all).engagements).toBe(0);
+	expect(fresh({ ...shown, likes: 1_250 }, all).engagements).toBe(250);
 });

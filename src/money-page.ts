@@ -362,11 +362,12 @@ ${viewer.actor ? "" : `<form method="post" action="/account/money/rewards" style
 	const payouts = r.payoutList
 		.map((x: any) => `<div class="rw-row">${BAG}<div><div class="t">${formatCents(Number(x.cents))}</div><div class="s">${isoTime(x.created_at, "date")}</div></div><div class="r">${x.automatic ? "Automatic" : "You paid out"}</div></div>`)
 		.join("\n");
+	const n = (v: number) => Number(v).toLocaleString("en-US");
 	const earnings = r.recent
 		.map((x: any) => {
 			const rate = x.views ? `${((x.engagements / x.views) * 100).toFixed(1)}% engagement` : "";
 			const inner = `<span class="icon reward" aria-hidden="true" style="width:28px;height:28px;display:grid;place-items:center"><svg viewBox="0 0 24 24" style="width:22px;height:22px;fill:rgb(29 155 240);stroke:none"><path d="${BOLT}"/></svg></span><div><div class="t">+${formatCents(x.cents)}</div><div class="s">${isoTime(x.window_end)}</div></div>
-<div class="r">${x.engagements.toLocaleString("en-US")} engagements<br>${x.views.toLocaleString("en-US")} views${rate ? `<br>${rate}` : ""}</div>`;
+<div class="r">+${x.engagements.toLocaleString("en-US")} engagements · +${x.views.toLocaleString("en-US")} views${rate ? `<br>${rate}` : ""}${x.likes != null ? `<br>${n(x.likes)} likes · ${n(x.reposts)} reposts · ${n(x.replies)} replies<br>${n(x.quotes)} quotes · ${n(x.bookmarks)} bookmarks · ${n(x.total_views)} views` : ""}</div>`;
 			return x.post_id ? `<a class="rw-row" href="/${esc(viewer.screen_name)}/status/${x.post_id}">${inner}</a>` : `<div class="rw-row">${inner}</div>`;
 		})
 		.join("\n");
@@ -383,11 +384,11 @@ ${payouts}
 ${earnings || `<p class="empty">Nothing earned yet.</p>`}
 <details class="how"><summary>How it works</summary><ul>
 <li>Every 3 minutes, posts and replies of yours from the last ${rules.max_post_age_hours} hours that drew ${viral || "enough attention"} in those 3 minutes have gone viral, and earn. Earnings update every 3 minutes.</li>
-<li>The more people engage, the more you earn: ${money(rules.cents_per_engagement)} for each account that liked, reposted, replied, quoted or bookmarked, and ${money(rules.cents_per_1000_views)} for each 1,000 accounts that saw it. Each account counts once per post; your own don't count.</li>
+<li>The more people engage, the more you earn: ${money(rules.cents_per_engagement)} for each new like, repost, reply, quote or bookmark, and ${money(rules.cents_per_1000_views)} for each 1,000 new views. A post counts what it shows, and each gain earns once.</li>
 ${rules.rate_bonus ? `<li>Your engagement rate (engagements per view) scales the payout: around 5% pays as above, lower pays down to half, higher up to double.</li>` : ""}
 <li>Earnings wait here until you pay them out into your Equicoins balance, whenever you like. You can hold up to ${formatCents(cap)}: reaching it pays everything out by itself within ${rules.payout_hours} hours.</li>
 <li>You need ${rules.min_followers.toLocaleString("en-US")} followers${rules.premium_only ? " and Premium" : ""} to take part.</li>
-<li>Up to ${formatCents(rules.max_post_cents)} for one post in 3 minutes (more carries over to the next), with no daily limit. Accounts newer than ${rules.min_account_days} days, and hidden or limited posts, don't count.</li>
+<li>Up to ${formatCents(rules.max_post_cents)} for one post in 3 minutes (more carries over to the next), with no daily limit. Hidden or limited posts don't count.</li>
 </ul></details>`;
 	return page(req, viewer, "Original Content Rewards", body, status);
 }

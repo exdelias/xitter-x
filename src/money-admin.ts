@@ -105,7 +105,6 @@ export const moneyActions: Record<string, Action> = {
 				cents_per_1000_views: cents(b.per_1000_views, "The pay for 1,000 views", 0, 1_000_000),
 				max_post_cents: cents(b.max_post, "The most for one post in 3 minutes", 1, 100_000_000),
 				max_post_age_hours: whole(b.max_post_age_hours, "How old a post may be (hours)", 1, 720),
-				min_account_days: whole(b.min_account_days, "How old an engaging account must be (days)", 0, 3650),
 			};
 			if (next.enabled && !next.min_engagements && !next.min_views) throw new AdminError("Set the engagements or the views a post needs to go viral.");
 			if (next.enabled && !next.cents_per_engagement && !next.cents_per_1000_views) throw new AdminError("Set what an engagement or 1,000 views pay.");

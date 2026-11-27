@@ -2067,3 +2067,23 @@ create table if not exists content_reward_override_seen (
 	engagements int not null default 0,
 	views int not null default 0
 );
+
+-- Original Content Rewards (content-rewards.ts): per post, how much of each
+-- count it shows (real and custom as one) has earned already; and each
+-- earning keeps the post's full counts at that moment
+create table if not exists content_reward_credited (
+	post_id bigint primary key references posts (id) on delete cascade,
+	likes int not null default 0,
+	reposts int not null default 0,
+	replies int not null default 0,
+	quotes int not null default 0,
+	bookmarks int not null default 0,
+	views int not null default 0,
+	updated_at timestamptz not null default now()
+);
+alter table content_rewards add column if not exists likes int;
+alter table content_rewards add column if not exists reposts int;
+alter table content_rewards add column if not exists replies int;
+alter table content_rewards add column if not exists quotes int;
+alter table content_rewards add column if not exists bookmarks int;
+alter table content_rewards add column if not exists total_views int;

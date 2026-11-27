@@ -7,24 +7,24 @@
 // twice. Windows missed while the server was down are caught up, up to an
 // hour back; switching the program on starts it from that moment.
 //
-// A post goes viral in a window when enough other accounts engaged with it
-// (liked, reposted, replied, quoted or bookmarked it) or saw it for the first
-// time. Each account counts once per post, ever: content_reward_engagers keeps
-// whom a post was paid for, so unliking and liking again earns nothing. Only
-// active local accounts some days old, not shadow banned, count. A post's
-// custom counts (count_overrides) count too: what they show above the real
-// counts is credited as it grows, in the window it grew in
-// (content_reward_override_seen keeps what was credited).
+// A post's counts are the ones it shows: its likes, reposts, replies, quotes,
+// bookmarks and views, real and custom (count_overrides) as one, exactly as
+// posts.ts counts them. content_reward_credited keeps, per post, how much of
+// each has earned already; each window, what a post shows above that is new,
+// and the post goes viral when enough is new (engagements, or views). Only
+// the share the pay covered is credited, so what the most for one post cut
+// off earns in the next windows, and a count that drops and rises again
+// earns nothing twice. Each earning keeps the post's full counts at that
+// moment (content_rewards), so every payout can be traced back.
 //
 // Earnings don't go straight into the wallet: they wait in
 // content_reward_balances until the account pays them out, up to
 // payout_cap_cents. Reaching that pays them out by themselves within
-// payout_hours (autoPayouts, run every minute). It pays per engagement and per 1,000 views,
-// held to a most per post and window and a most per account each 24 hours.
+// payout_hours (autoPayouts, run every minute).
 //
-// The pay grows with the accounts that engaged and saw it, and the share of
-// those who saw it that engaged (its engagement rate) scales it: 5% pays as
-// is, less pays down to half, more up to double.
+// The pay grows with what's new, and the share of new viewers who engaged
+// (the engagement rate) scales it: 5% pays as is, less pays down to half,
+// more up to double.
 //
 // What earns: posts, replies and quotes (reposts aren't posts here) made in
 // the last few days by an active local account with at least min_followers
@@ -69,113 +69,86 @@ export const uncapped = (engagements: number, views: number, r: RewardRules) =>
 // what a viral post earns in one window
 export const payoutFor = (engagements: number, views: number, r: RewardRules) => Math.min(r.max_post_cents, uncapped(engagements, views, r));
 
-// what each post got in the window: the other accounts' engagements, one
-// row per account and post (the author's own left out)
-const engagementsIn = (start: Date, end: Date) => sql`
-	select post_id, user_id from likes where created_at >= ${start} and created_at < ${end}
-	union select post_id, user_id from reposts where created_at >= ${start} and created_at < ${end}
-	union select post_id, user_id from bookmarks where created_at >= ${start} and created_at < ${end}
-	union select reply_to_id, user_id from posts where reply_to_id is not null and created_at >= ${start} and created_at < ${end}
-	union select quote_id, user_id from posts where quote_id is not null and created_at >= ${start} and created_at < ${end}`;
+export const METRICS = ["likes", "reposts", "replies", "quotes", "bookmarks", "views"] as const;
+export type Metric = (typeof METRICS)[number];
+export type Counts = Record<Metric, number>;
+const ENGAGING = ["likes", "reposts", "replies", "quotes", "bookmarks"] as const;
 
-// an account whose engagement or view counts
-const counts = (r: RewardRules, end: Date) =>
-	sql`e.instance is null and e.status = 'active' and not e.shadow_banned and e.deactivated_at is null
-		and e.created_at <= ${end}::timestamptz - make_interval(days => ${r.min_account_days})`;
+// a post's counts as it shows them (posts.ts): a custom count wins over the real one
+const SUSPENDED = sql`(select id from users where status = 'suspended' or instance_blocked)`;
+const shownCounts = (p: any) => sql`
+	coalesce((${p}.count_overrides->>'likes')::int, (select count(*)::int from likes x where x.post_id = ${p}.id and x.user_id not in ${SUSPENDED})) as likes,
+	coalesce((${p}.count_overrides->>'reposts')::int, (select count(*)::int from reposts x where x.post_id = ${p}.id and x.user_id not in ${SUSPENDED})) as reposts,
+	coalesce((${p}.count_overrides->>'replies')::int, (select count(*)::int from posts x where x.reply_to_id = ${p}.id and x.user_id not in ${SUSPENDED})) as replies,
+	coalesce((${p}.count_overrides->>'quotes')::int, (select count(*)::int from posts x where x.quote_id = ${p}.id and x.user_id not in ${SUSPENDED})) as quotes,
+	coalesce((${p}.count_overrides->>'bookmarks')::int, (select count(*)::int from bookmarks x where x.post_id = ${p}.id)) as bookmarks,
+	coalesce((${p}.count_overrides->>'views')::int, (select count(*)::int from post_views x where x.post_id = ${p}.id)) as views`;
 
-// Pays one window, in one transaction; false when it was paid already
+// what of `shown` hasn't earned yet, per count
+export function fresh(shown: Counts, credited: Counts) {
+	const d = {} as Counts;
+	for (const m of METRICS) d[m] = Math.max(0, shown[m] - credited[m]);
+	return { d, engagements: ENGAGING.reduce((n, m) => n + d[m], 0), views: d.views };
+}
+
+// credited after a window: the share the pay covered of what was new
+export function creditAfter(shown: Counts, credited: Counts, d: Counts, share: number) {
+	const out = {} as Counts;
+	for (const m of METRICS) out[m] = Math.min(Math.max(shown[m], credited[m]), credited[m] + Math.ceil(d[m] * share));
+	return out;
+}
+
+// Pays one window, in one transaction; false when it was paid already.
 // `run` runs it in a transaction (a test passes a savepoint)
 type Run = <T>(fn: (tx: typeof sql) => Promise<T>) => Promise<T>;
 const begin: Run = (fn) => sql.begin(fn as any) as any;
 
 export async function payWindow(endMs: number, r: RewardRules, run: Run = begin): Promise<{ posts: number; cents: number } | false> {
 	const end = new Date(endMs);
-	const start = new Date(endMs - WINDOW_MS);
 	return run(async (tx) => {
-		const [run] = await tx`insert into content_reward_runs (window_end) values (${end}) on conflict do nothing returning window_end`;
-		if (!run) return false;
-		const candidates = await tx`
-			with eng as (
-				select ev.post_id, count(*)::int as n from (${engagementsIn(start, end)}) ev
-					join posts p on p.id = ev.post_id join users e on e.id = ev.user_id
-				where ev.user_id <> p.user_id and ${counts(r, end)}
-					and not exists (select 1 from content_reward_engagers x where x.post_id = ev.post_id and x.user_id = ev.user_id)
-				group by 1
-			), vw as (
-				select v.post_id, count(*)::int as n from post_views v join posts p on p.id = v.post_id join users e on e.id = v.user_id
-				where v.created_at >= ${start} and v.created_at < ${end} and v.user_id <> p.user_id and ${counts(r, end)}
-				group by 1
-			)
-			select p.id::text, p.user_id::text as author, coalesce(eng.n, 0) as engagements, coalesce(vw.n, 0) as views
-			from (select post_id from eng union select post_id from vw) c
-				join posts p on p.id = c.post_id join users a on a.id = p.user_id
-				left join eng on eng.post_id = p.id left join vw on vw.post_id = p.id
-				left join user_stats s on s.user_id = a.id
-			where a.instance is null and ${followersOf(sql`a`, sql`s`)} >= ${r.min_followers} and a.status = 'active' and not a.shadow_banned and a.deactivated_at is null
-				${r.premium_only ? sql`and a.premium_tier is not null` : sql``}
+		const [ran] = await tx`insert into content_reward_runs (window_end) values (${end}) on conflict do nothing returning window_end`;
+		if (!ran) return false;
+		// every post that may earn, with what it shows and what has earned
+		const rows = await tx`
+			select p.id::text, p.user_id::text as author, ${shownCounts(sql`p`)},
+				coalesce(k.likes, 0) as c_likes, coalesce(k.reposts, 0) as c_reposts, coalesce(k.replies, 0) as c_replies,
+				coalesce(k.quotes, 0) as c_quotes, coalesce(k.bookmarks, 0) as c_bookmarks, coalesce(k.views, 0) as c_views
+			from posts p join users a on a.id = p.user_id left join user_stats s on s.user_id = a.id
+				left join content_reward_credited k on k.post_id = p.id
+			where a.instance is null and a.status = 'active' and not a.shadow_banned and a.deactivated_at is null
+				and ${followersOf(sql`a`, sql`s`)} >= ${r.min_followers} ${r.premium_only ? sql`and a.premium_tier is not null` : sql``}
 				and not p.hidden and not p.ad_only and p.circle_owner_id is null and p.notice->>'type' is distinct from 'Fosnr'
 				and p.created_at < ${end} and p.created_at >= ${end}::timestamptz - make_interval(hours => ${r.max_post_age_hours})`;
-		// custom counts raised since they were last credited, on the posts that may earn
-		const boosted = await tx`
-			with o as (
-				select p.id, p.count_overrides c,
-					(select count(*) from likes where post_id = p.id)::int as likes, (select count(*) from reposts where post_id = p.id)::int as reposts,
-					(select count(*) from posts r where r.reply_to_id = p.id)::int as replies, (select count(*) from posts q where q.quote_id = p.id)::int as quotes,
-					(select count(*) from bookmarks where post_id = p.id)::int as bookmarks, (select count(*) from post_views where post_id = p.id)::int as views
-				from posts p join users a on a.id = p.user_id left join user_stats s on s.user_id = a.id
-				where p.count_overrides is not null and p.count_overrides <> '{}'::jsonb
-					and a.instance is null and a.status = 'active' and not a.shadow_banned and a.deactivated_at is null
-					and ${followersOf(sql`a`, sql`s`)} >= ${r.min_followers} ${r.premium_only ? sql`and a.premium_tier is not null` : sql``}
-					and not p.hidden and not p.ad_only and p.circle_owner_id is null and p.notice->>'type' is distinct from 'Fosnr'
-					and p.created_at < ${end} and p.created_at >= ${end}::timestamptz - make_interval(hours => ${r.max_post_age_hours})
-			), extra as (
-				select o.id, (greatest(coalesce((c->>'likes')::int, likes) - likes, 0) + greatest(coalesce((c->>'reposts')::int, reposts) - reposts, 0)
-					+ greatest(coalesce((c->>'replies')::int, replies) - replies, 0) + greatest(coalesce((c->>'quotes')::int, quotes) - quotes, 0)
-					+ greatest(coalesce((c->>'bookmarks')::int, bookmarks) - bookmarks, 0)) as eng,
-					greatest(coalesce((c->>'views')::int, views) - views, 0) as vw
-				from o
-			)
-			select e.id::text, p.user_id::text as author, coalesce(seen.engagements, 0) as seen_eng, coalesce(seen.views, 0) as seen_vw, greatest(e.eng - coalesce(seen.engagements, 0), 0) as engagements, greatest(e.vw - coalesce(seen.views, 0), 0) as views
-			from extra e join posts p on p.id = e.id left join content_reward_override_seen seen on seen.post_id = e.id
-			where e.eng > coalesce(seen.engagements, 0) or e.vw > coalesce(seen.views, 0)`;
-		const all = new Map<string, any>((candidates as any[]).map((c) => [c.id, c]));
-		for (const b of boosted as any[]) {
-			const c = all.get(b.id);
-			if (c) {
-				c.engagements += b.engagements;
-				c.views += b.views;
-				c.boost = b;
-			} else all.set(b.id, { id: b.id, author: b.author, engagements: b.engagements, views: b.views, boost: b });
-		}
-		const viral = [...all.values()].filter((c) => isViral(c.engagements, c.views, r));
-		if (!viral.length) return { posts: 0, cents: 0 };
-		// the most engaged first
-		viral.sort((a, b) => b.engagements - a.engagements || b.views - a.views);
-		const paid: string[] = [];
+		const viral = (rows as any[])
+			.map((x) => {
+				const shown = Object.fromEntries(METRICS.map((m) => [m, Number(x[m])])) as Counts;
+				const credited = Object.fromEntries(METRICS.map((m) => [m, Number(x[`c_${m}`])])) as Counts;
+				return { id: x.id as string, author: x.author as string, shown, credited, ...fresh(shown, credited) };
+			})
+			.filter((c) => isViral(c.engagements, c.views, r))
+			// the most engaged first
+			.sort((a, b) => b.engagements - a.engagements || b.views - a.views);
+		let posts = 0;
 		let total = 0;
 		for (const c of viral) {
 			const cents = payoutFor(c.engagements, c.views, r);
-			// a custom count's rise is credited in the share that was paid for:
-			// what a most cut off stays to earn in the next windows
-			if (c.boost && cents > 0) {
-				const share = Math.min(1, cents / Math.max(1, uncapped(c.engagements, c.views, r)));
-				await tx`insert into content_reward_override_seen (post_id, engagements, views)
-					values (${c.id}::bigint, ${c.boost.seen_eng + Math.ceil(c.boost.engagements * share)}, ${c.boost.seen_vw + Math.ceil(c.boost.views * share)})
-					on conflict (post_id) do update set engagements = excluded.engagements, views = excluded.views`;
-			}
 			if (cents <= 0) continue;
-			await tx`insert into content_rewards (id, window_end, post_id, author_id, engagements, views, cents)
-				values (${newId()}::bigint, ${end}, ${c.id}::bigint, ${c.author}::bigint, ${c.engagements}, ${c.views}, ${cents})`;
+			const share = Math.min(1, cents / Math.max(1, uncapped(c.engagements, c.views, r)));
+			const next = creditAfter(c.shown, c.credited, c.d, share);
+			await tx`insert into content_reward_credited (post_id, likes, reposts, replies, quotes, bookmarks, views, updated_at)
+				values (${c.id}::bigint, ${next.likes}, ${next.reposts}, ${next.replies}, ${next.quotes}, ${next.bookmarks}, ${next.views}, now())
+				on conflict (post_id) do update set likes = excluded.likes, reposts = excluded.reposts, replies = excluded.replies,
+					quotes = excluded.quotes, bookmarks = excluded.bookmarks, views = excluded.views, updated_at = now()`;
+			await tx`insert into content_rewards (id, window_end, post_id, author_id, engagements, views, cents,
+					likes, reposts, replies, quotes, bookmarks, total_views)
+				values (${newId()}::bigint, ${end}, ${c.id}::bigint, ${c.author}::bigint, ${c.engagements}, ${c.views}, ${cents},
+					${c.shown.likes}, ${c.shown.reposts}, ${c.shown.replies}, ${c.shown.quotes}, ${c.shown.bookmarks}, ${c.shown.views})`;
 			await hold(tx, c.author, cents, r);
-			paid.push(c.id);
+			posts++;
 			total += cents;
 		}
-		if (paid.length)
-			await tx`insert into content_reward_engagers (post_id, user_id)
-				select distinct ev.post_id, ev.user_id from (${engagementsIn(start, end)}) ev join posts p on p.id = ev.post_id join users e on e.id = ev.user_id
-				where ev.post_id = any(${sql.array(paid, "INT8")}) and ev.user_id <> p.user_id and ${counts(r, end)} on conflict do nothing`;
-		await tx`update content_reward_runs set posts = ${paid.length}, cents = ${total} where window_end = ${end}`;
-		return { posts: paid.length, cents: total };
+		await tx`update content_reward_runs set posts = ${posts}, cents = ${total} where window_end = ${end}`;
+		return { posts, cents: total };
 	});
 }
 
@@ -250,7 +223,7 @@ export async function rewardsOf(userId: string) {
 			from users u left join user_stats s on s.user_id = u.id left join content_reward_balances b on b.user_id = u.id where u.id = ${userId}::bigint`,
 		sql`select coalesce(sum(cents) filter (where created_at > now() - interval '1 day'), 0)::bigint as day,
 			coalesce(sum(cents), 0)::bigint as total, count(*)::int as payouts from content_rewards where author_id = ${userId}::bigint`,
-		sql`select c.window_end, c.post_id::text, c.engagements, c.views, c.cents, p.text, p.reply_to_id is not null as reply
+		sql`select c.window_end, c.post_id::text, c.engagements, c.views, c.cents, c.likes, c.reposts, c.replies, c.quotes, c.bookmarks, c.total_views, p.text, p.reply_to_id is not null as reply
 			from content_rewards c left join posts p on p.id = c.post_id where c.author_id = ${userId}::bigint order by c.window_end desc, c.id desc limit 30`,
 	]);
 	const followers = u?.followers ?? 0;
