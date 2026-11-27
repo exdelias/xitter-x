@@ -97,6 +97,8 @@ export const moneyActions: Record<string, Action> = {
 				premium_only: b.premium_only === true,
 				min_followers: whole(b.min_followers, "Followers needed to earn", 0, 1_000_000_000),
 				rate_bonus: b.rate_bonus === true,
+				payout_cap_cents: cents(b.payout_cap, "The most earnings held before they pay out by themselves", 1, 1_000_000_000),
+				payout_hours: whole(b.payout_hours, "Hours to pay out a full balance", 1, 720),
 				min_engagements: whole(b.min_engagements, "Engagements to go viral", 0, 1_000_000),
 				min_views: whole(b.min_views, "Views to go viral", 0, 1_000_000_000),
 				cents_per_engagement: cents(b.per_engagement, "The pay for an engagement", 0, 100_000),

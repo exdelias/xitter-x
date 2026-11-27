@@ -41,7 +41,7 @@ import { hit } from "./ratelimit";
 import { feature, settings } from "./settings";
 import { MONEY_ICON } from "./tidy";
 import { buyShopItem, myShopOrders, shopItems, shopView, ShopError } from "./money-shop";
-import { WINDOW_MS, rewardsOf, windowEndBefore } from "./content-rewards";
+import { RewardsError, payOutRewards, rewardsOf } from "./content-rewards";
 import { assetOf, buyCrypto, cryptoOn, sellCrypto } from "./crypto";
 import { CRYPTO_CSS, cryptoAsset, cryptoHome, cryptoSummary } from "./money-crypto-page";
 
@@ -292,14 +292,6 @@ const postButton = (url: string, label = "Post", auto = false) =>
 // a lightning bolt: Original Content Rewards (content-rewards.ts)
 const BOLT = "M13.5 2 4 13.5h6.5L9.5 22 20 9.5h-6.5L13.5 2z";
 
-// one payout of Original Content Rewards, opening the post that earned it
-const rewardRow = (r: any, screenName: string) => {
-	const body = `<span class="icon reward" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${BOLT}"/></svg></span><div><div class="who"><span>Original content reward</span></div>
-<div class="sub">${r.engagements.toLocaleString("en-US")} engagement${r.engagements === 1 ? "" : "s"} · ${r.views.toLocaleString("en-US")} view${r.views === 1 ? "" : "s"}${r.text ? ` · ${esc([...r.text].slice(0, 60).join(""))}` : ""} · ${date(r.window_end)}</div></div>
-<div class="amt in">+${shortCents(r.cents)}</div>`;
-	return r.post_id ? `<a class="tx" href="/${esc(screenName)}/status/${r.post_id}">${body}</a>` : `<div class="tx">${body}</div>`;
-};
-
 // what came and went, newest first: payments, each day's earnings from likes,
 // and what viral posts earned
 async function activity(userId: string, screenName: string) {
@@ -307,8 +299,7 @@ async function activity(userId: string, screenName: string) {
 		sql`select id::text from money_transfers where sender_id = ${userId}::bigint or recipient_id = ${userId}::bigint order by id desc limit 60`,
 		sql`select date_trunc('day', created_at) as day, max(created_at) as at, count(*)::int as likes, sum(cents)::bigint as cents
 			from money_like_rewards where author_id = ${userId}::bigint group by 1 order by 1 desc limit 30`,
-		sql`select c.window_end, c.post_id::text, c.engagements, c.views, c.cents, p.text from content_rewards c left join posts p on p.id = c.post_id
-			where c.author_id = ${userId}::bigint order by c.window_end desc, c.id desc limit 30`,
+		sql`select cents, automatic, created_at from content_reward_payouts where user_id = ${userId}::bigint order by created_at desc limit 30`,
 	]);
 	const found = await payments(rows.map((r: any) => r.id));
 	const items: { at: Date; html: string }[] = [];
@@ -330,7 +321,12 @@ async function activity(userId: string, screenName: string) {
 			html: `<div class="tx"><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${HEART}"/></svg></span><div><div class="who"><span>Likes on your posts</span></div>
 <div class="sub">${l.likes} like${l.likes === 1 ? "" : "s"} · ${date(l.day)}</div></div><div class="amt in">+${shortCents(Number(l.cents))}</div></div>`,
 		});
-	for (const r of rewards) items.push({ at: new Date(r.window_end), html: rewardRow(r, screenName) });
+	for (const r of rewards)
+		items.push({
+			at: new Date(r.created_at),
+			html: `<a class="tx" href="/account/money/rewards"><span class="icon reward" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${BOLT}"/></svg></span><div><div class="who"><span>Original Content Rewards payout</span></div>
+<div class="sub">${r.automatic ? "Automatic" : "Paid out"} · ${date(r.created_at)}</div></div><div class="amt in">+${shortCents(Number(r.cents))}</div></a>`,
+		});
 	return items.sort((a, b) => b.at.getTime() - a.at.getTime());
 }
 
@@ -341,7 +337,7 @@ const CALENDAR = `<svg class="rw-cal" viewBox="0 0 24 24" aria-hidden="true"><re
 const BAG = `<svg class="rw-bag" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5h6l-2 3.5h-2L9 3.5zM11 7c-4 1.5-7 5.5-7 9.5 0 2.5 2 4 4.5 4h7c2.5 0 4.5-1.5 4.5-4 0-4-3-8-7-9.5"/><path d="M14 11.5c-.4-.6-1.1-1-2-1-1.2 0-2 .7-2 1.5 0 2 4 1 4 3 0 .8-.8 1.5-2 1.5-.9 0-1.6-.4-2-1M12 9.5v1M12 16.5v1"/></svg>`;
 const isoTime = (d: Date | number, kind = "time") => `<time data-local="${kind}" datetime="${new Date(d).toISOString()}">${esc(new Date(d).toISOString().slice(0, 16).replace("T", " "))} UTC</time>`;
 
-async function rewardsPage(req: Request, viewer: Viewer) {
+async function rewardsPage(req: Request, viewer: Viewer, status = 200, notice = "", error = "") {
 	const r = await rewardsOf(viewer.id);
 	const money = (c: number) => (c < 100 ? `${c}¢` : formatCents(c));
 	const rules = r.rules;
@@ -354,32 +350,46 @@ async function rewardsPage(req: Request, viewer: Viewer) {
 	};
 	const share = rules.min_followers ? Math.min(100, Math.round((r.followers / rules.min_followers) * 100)) : 100;
 	const elig = r.eligible
-		? `<div class="rw-elig ok" role="status"><b>You're earning.</b> Your posts and replies pay out when they go viral.</div>`
+		? ""
 		: `<div class="rw-elig" role="status"><b>Not earning yet.</b> ${why[r.why ?? "off"]}${r.why === "followers" ? `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${share}" aria-label="Followers toward the minimum"><span style="width:${share}%"></span></div>` : ""}</div>`;
-	const next = windowEndBefore(Date.now()) + WINDOW_MS;
-	const rows = r.recent
+	const cap = rules.payout_cap_cents;
+	const full = Math.min(100, Math.round((r.pending / cap) * 100));
+	const due = r.capReachedAt ? new Date(new Date(r.capReachedAt).getTime() + rules.payout_hours * 3_600_000) : null;
+	const ready = `<div class="rw-elig${r.pending ? " ok" : ""}"><div class="row2"><span style="color:var(--text)"><b>${formatCents(r.pending)}</b> ready to pay out</span><span>of ${formatCents(cap)}</span></div>
+<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${full}" aria-label="Earnings held toward the most"><span style="width:${full}%"></span></div>
+${viewer.actor ? "" : `<form method="post" action="/account/money/rewards" style="margin-top:12px"><input type="hidden" name="action" value="payout"><button type="submit" class="pill primary wide"${r.pending ? "" : " disabled"}>Pay out now</button></form>`}</div>`;
+	const nextText = due ? `Paying out by itself by ${isoTime(due)}` : `When you pay out, or by itself once you reach ${formatCents(cap)}`;
+	const payouts = r.payoutList
+		.map((x: any) => `<div class="rw-row">${BAG}<div><div class="t">${formatCents(Number(x.cents))}</div><div class="s">${isoTime(x.created_at, "date")}</div></div><div class="r">${x.automatic ? "Automatic" : "You paid out"}</div></div>`)
+		.join("\n");
+	const earnings = r.recent
 		.map((x: any) => {
 			const rate = x.views ? `${((x.engagements / x.views) * 100).toFixed(1)}% engagement` : "";
-			const inner = `${BAG}<div><div class="t">${formatCents(x.cents)}</div><div class="s">${isoTime(x.window_end)}</div></div>
+			const inner = `<span class="icon reward" aria-hidden="true" style="width:28px;height:28px;display:grid;place-items:center"><svg viewBox="0 0 24 24" style="width:22px;height:22px;fill:rgb(29 155 240);stroke:none"><path d="${BOLT}"/></svg></span><div><div class="t">+${formatCents(x.cents)}</div><div class="s">${isoTime(x.window_end)}</div></div>
 <div class="r">${x.engagements.toLocaleString("en-US")} engagements<br>${x.views.toLocaleString("en-US")} views${rate ? `<br>${rate}` : ""}</div>`;
 			return x.post_id ? `<a class="rw-row" href="/${esc(viewer.screen_name)}/status/${x.post_id}">${inner}</a>` : `<div class="rw-row">${inner}</div>`;
 		})
 		.join("\n");
 	const viral = [rules.min_engagements > 0 ? `${rules.min_engagements} engagements` : "", rules.min_views > 0 ? `${rules.min_views.toLocaleString("en-US")} views` : ""].filter(Boolean).join(" or ");
-	const body = `<section class="rw-total" aria-label="Total payouts"><div class="amount">${formatCents(r.total)}</div><div class="label">Total payouts</div>
-${r.day ? `<div class="dim">${formatCents(r.day)} in the last 24 hours</div>` : ""}</section>
+	const body = `<section class="rw-total" aria-label="Total payouts"><div class="amount">${formatCents(r.paidOut)}</div><div class="label">Total payouts</div>
+${r.day ? `<div class="dim">${formatCents(r.day)} earned in the last 24 hours</div>` : ""}</section>
+${notice ? `<div class="notice" role="status" style="margin:0 16px 8px">${esc(notice)}</div>` : ""}${error ? `<div class="notice error" role="alert" style="margin:0 16px 8px">${esc(error)}</div>` : ""}
 ${elig}
+${ready}
 <h2 class="rw-h">Payouts</h2>
-${r.eligible ? `<div class="rw-row">${CALENDAR}<div><div class="t">Next payout</div><div class="s">${isoTime(next)}</div></div><div class="r">every 15 minutes</div></div>` : ""}
-${rows || `<p class="empty">No payouts yet.</p>`}
+<div class="rw-row">${CALENDAR}<div><div class="t">Next payout</div><div class="s">${nextText}</div></div><div class="r"></div></div>
+${payouts}
+<h2 class="rw-h">Earnings</h2>
+${earnings || `<p class="empty">Nothing earned yet.</p>`}
 <details class="how"><summary>How it works</summary><ul>
-<li>Every 15 minutes, posts and replies of yours from the last ${rules.max_post_age_hours} hours that drew ${viral || "enough attention"} in those 15 minutes have gone viral, and pay out straight into your Equicoins balance.</li>
+<li>Every 15 minutes, posts and replies of yours from the last ${rules.max_post_age_hours} hours that drew ${viral || "enough attention"} in those 15 minutes have gone viral, and earn.</li>
 <li>The more people engage, the more you earn: ${money(rules.cents_per_engagement)} for each account that liked, reposted, replied, quoted or bookmarked, and ${money(rules.cents_per_1000_views)} for each 1,000 accounts that saw it. Each account counts once per post; your own don't count.</li>
 ${rules.rate_bonus ? `<li>Your engagement rate (engagements per view) scales the payout: around 5% pays as above, lower pays down to half, higher up to double.</li>` : ""}
+<li>Earnings wait here until you pay them out into your Equicoins balance, whenever you like. You can hold up to ${formatCents(cap)}: reaching it pays everything out by itself within ${rules.payout_hours} hours.</li>
 <li>You need ${rules.min_followers.toLocaleString("en-US")} followers${rules.premium_only ? " and Premium" : ""} to take part.</li>
 <li>Up to ${formatCents(rules.max_post_cents)} for one post in 15 minutes, and ${formatCents(rules.daily_cap_cents)} for all of yours in 24 hours. Accounts newer than ${rules.min_account_days} days, and hidden or limited posts, don't count.</li>
 </ul></details>`;
-	return page(req, viewer, "Original Content Rewards", body);
+	return page(req, viewer, "Original Content Rewards", body, status);
 }
 
 // requests still waiting: of the viewer (pay or decline), and the viewer's own
@@ -763,7 +773,20 @@ export async function moneyRoute(req: Request, viewer: Viewer): Promise<Response
 			throw e;
 		}
 	}
-	if (p === "/account/money/rewards" && req.method === "GET") return rewardsPage(req, viewer);
+	if (p === "/account/money/rewards") {
+		if (req.method !== "POST") return rewardsPage(req, viewer, 200, url.searchParams.has("paid") ? "Paid out into your balance." : "");
+		const form = await req.formData();
+		if (form.get("action") !== "payout") return rewardsPage(req, viewer, 400);
+		if (viewer.actor) return rewardsPage(req, viewer, 403, "", `Only @${viewer.screen_name} can pay out for this account.`);
+		if (!hit("write", viewer.id).ok) return rewardsPage(req, viewer, 429, "", "You're going too fast. Wait a few minutes and try again.");
+		try {
+			await payOutRewards(viewer.id);
+		} catch (e) {
+			if (e instanceof RewardsError) return rewardsPage(req, viewer, 400, "", e.message);
+			throw e;
+		}
+		return new Response(null, { status: 303, headers: { location: "/account/money/rewards?paid=1" } });
+	}
 	if (p === "/account/money/crypto" || p.startsWith("/account/money/crypto/")) {
 		if (!cryptoOn()) return page(req, viewer, "Crypto", `<p class="empty">Crypto isn't available here.</p>`, 404);
 		if (p === "/account/money/crypto") return page(req, viewer, "Crypto", await cryptoHome(viewer.id, await balanceOf(viewer.id)));

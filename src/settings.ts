@@ -167,6 +167,10 @@ const DEFAULTS = {
 		// a post's engagement rate (engagements per view) in the window scales its
 		// pay between half and double (content-rewards.ts rateFactor)
 		rate_bonus: true,
+		// earnings wait to be paid out by hand, up to this much; reaching it pays
+		// them out by themselves within payout_hours
+		payout_cap_cents: 183_500,
+		payout_hours: 12,
 		min_engagements: 20,
 		min_views: 500,
 		cents_per_engagement: 10,

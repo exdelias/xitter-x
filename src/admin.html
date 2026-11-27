@@ -1282,12 +1282,14 @@ const RENDER = {
 			const num = (id, label, value, hint) => '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" inputmode="numeric" value="' + esc(String(value)) + '"' + off + ">" + (hint ? '<p class="dim small">' + hint + "</p>" : "") + "</div>";
 			const cash = (id, label, cents) => '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" inputmode="decimal" value="' + esc(dollars(cents)) + '"' + off + "></div>";
 			return '<section style="margin-top:20px"><h2>Original Content Rewards</h2><p class="dim">Every 15 minutes, posts and replies going viral pay their authors in Equicoins, straight into their wallets. ' +
-				"An engagement is another account liking, reposting, replying, quoting or bookmarking a post, once per account and post. Only active local accounts at least the age below count; staff's counts don't.</p>" +
+				"An engagement is another account liking, reposting, replying, quoting or bookmarking a post, once per account and post. Only active local accounts at least the age below count. Custom counts set on a post count too, as they're raised. Earnings wait until the account pays them out, or pay out by themselves at the most held.</p>" +
 				cards([["Paid in 24 hours", usd(st.day)], ["Paid this week", usd(st.week)], ["Paid in all", usd(st.total)], ["Last 15 minutes paid", st.last ? when(st.last.window_end) + " · " + st.last.posts + (st.last.posts === 1 ? " post" : " posts") + " · " + usd(Number(st.last.cents)) : "Not yet"]]) +
 				'<div class="grid2" style="margin-top:12px"><div class="box"><h2>Rules</h2>' +
 				'<label class="row"><input type="checkbox" id="rwon"' + (r.enabled ? " checked" : "") + off + "> Pay Original Content Rewards" + (m.enabled ? "" : ' <span class="dim small">(Equicoins is off, so nothing is paid)</span>') + "</label>" +
 				'<label class="row"><input type="checkbox" id="rwprem"' + (r.premium_only ? " checked" : "") + off + "> Only accounts with a Premium plan earn</label>" +
-				num("rwfol", "Followers an account needs to earn", r.min_followers) +
+				num("rwfol", "Followers an account needs to earn (a custom follower count counts)", r.min_followers) +
+				cash("rwcap", "Most earnings held until paid out ($); reaching it pays out by itself", r.payout_cap_cents) +
+				num("rwph", "A full balance pays out within this many hours", r.payout_hours) +
 				'<label class="row"><input type="checkbox" id="rwrate"' + (r.rate_bonus ? " checked" : "") + off + "> The engagement rate scales the pay (5% pays as set; down to half, up to double)</label>" +
 				num("rweng", "Engagements in 15 minutes to go viral (0: views alone)", r.min_engagements) +
 				num("rwviews", "Views in 15 minutes to go viral (0: engagements alone)", r.min_views) +
@@ -1387,7 +1389,7 @@ const RENDER = {
 			if (!(await ask((approve ? "Approve" : "Reject and refund") + " this shop request?"))) return;
 			act(() => api("reviewShopOrder", { id: b.dataset.shopReview, approve }), approve ? "Shop request approved" : "Request rejected and refunded").then(again);
 		});
-		if ($("#rwsave")) $("#rwsave").onclick = () => act(() => api("saveContentRewards", { enabled: $("#rwon").checked, premium_only: $("#rwprem").checked, min_followers: $("#rwfol").value, rate_bonus: $("#rwrate").checked, min_engagements: $("#rweng").value, min_views: $("#rwviews").value, per_engagement: $("#rwpe").value, per_1000_views: $("#rwpv").value, max_post: $("#rwmax").value, daily_cap: $("#rwday").value, max_post_age_hours: $("#rwage").value, min_account_days: $("#rwacct").value }), "Rewards saved").then(again);
+		if ($("#rwsave")) $("#rwsave").onclick = () => act(() => api("saveContentRewards", { enabled: $("#rwon").checked, premium_only: $("#rwprem").checked, min_followers: $("#rwfol").value, rate_bonus: $("#rwrate").checked, payout_cap: $("#rwcap").value, payout_hours: $("#rwph").value, min_engagements: $("#rweng").value, min_views: $("#rwviews").value, per_engagement: $("#rwpe").value, per_1000_views: $("#rwpv").value, max_post: $("#rwmax").value, daily_cap: $("#rwday").value, max_post_age_hours: $("#rwage").value, min_account_days: $("#rwacct").value }), "Rewards saved").then(again);
 		if ($("#msave")) $("#msave").onclick = () => act(() => api("saveMoney", { starting: $("#ms").value, max_transfer: $("#mx").value, like: $("#ml").value, feed: $("#mf").value, follow_network: !!$("#mnet")?.checked, peer_daily: $("#mcap").value, move_balance: $("#mmove").checked, network_totals: $("#mtot").checked }), "Equicoins settings saved").then(again);
 		if ($("#madj")) $("#madj").onclick = () => act(async () => { const r = await api("adjustMoney", { handle: $("#mah").value, amount: $("#maa").value }); notice("@" + r.to + " now has " + usd(r.balance)); }).then(again);
 		$("#mqs").onclick = again;

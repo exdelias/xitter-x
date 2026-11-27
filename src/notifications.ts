@@ -117,7 +117,7 @@ async function items(viewerId: string, opts: { before?: number; after?: number; 
 				order by at desc limit ${opts.limit}`;
 			for (const r of earned)
 				out.push({ kind: "staff", key: `reward-${ms(r.window_end)}`, at: ms(r.at), url: "/i/xmoney/rewards",
-					text: `Your ${r.posts === 1 ? "post" : `${r.posts} posts`} going viral earned ${formatCents(Number(r.cents))} from Original Content Rewards.` });
+					text: `Your ${r.posts === 1 ? "post" : `${r.posts} posts`} going viral earned ${formatCents(Number(r.cents))} from Original Content Rewards, ready to pay out.` });
 		}
 		const asked = await sql`select o.id, o.screen_name, r.created_at as at from affiliation_requests r join users o on o.id = r.org_id
 			where r.user_id = ${viewerId}::bigint and o.allow_affiliates and r.created_at >= ${lo} and r.created_at < ${hi} order by r.created_at desc limit ${opts.limit}`;

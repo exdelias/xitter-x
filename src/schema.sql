@@ -2042,3 +2042,28 @@ create table if not exists money_crypto_trades (
 	created_at timestamptz not null default now()
 );
 create index if not exists money_crypto_trades_user_idx on money_crypto_trades (user_id, id desc);
+
+-- Original Content Rewards held for payout (content-rewards.ts): what an
+-- account earned and hasn't paid out yet, and when that reached the most it
+-- may hold (it is then paid out by itself); each payout into the wallet; and
+-- the custom counts (count_overrides) of a post already credited, so a
+-- raised count earns once
+create table if not exists content_reward_balances (
+	user_id bigint primary key references users (id) on delete cascade,
+	pending_cents bigint not null default 0 check (pending_cents >= 0),
+	cap_reached_at timestamptz
+);
+create index if not exists content_reward_balances_cap_idx on content_reward_balances (cap_reached_at) where cap_reached_at is not null;
+create table if not exists content_reward_payouts (
+	id bigint primary key,
+	user_id bigint not null references users (id) on delete cascade,
+	cents bigint not null check (cents > 0),
+	automatic boolean not null default false,
+	created_at timestamptz not null default now()
+);
+create index if not exists content_reward_payouts_user_idx on content_reward_payouts (user_id, created_at desc);
+create table if not exists content_reward_override_seen (
+	post_id bigint primary key references posts (id) on delete cascade,
+	engagements int not null default 0,
+	views int not null default 0
+);
