@@ -9,13 +9,13 @@
 //
 // A post's counts are the ones it shows: its likes, reposts, replies, quotes,
 // bookmarks and views, real and custom (count_overrides) as one, exactly as
-// posts.ts counts them. content_reward_credited keeps, per post, how much of
-// each has earned already; each window, what a post shows above that is new,
-// and the post goes viral when enough is new (engagements, or views). Only
-// the share the pay covered is credited, so what the most for one post cut
-// off earns in the next windows, and a count that drops and rises again
-// earns nothing twice. Each earning keeps the post's full counts at that
-// moment (content_rewards), so every payout can be traced back.
+// posts.ts counts them. content_reward_credited keeps, per post, the counts
+// it showed when it last earned; each window, what it shows above that is
+// new, and the post goes viral when enough is new (engagements, or views).
+// When it earns, everything it shows is rewarded (above the most for one
+// post is not paid later), so a post earns again only when its counts rise,
+// and a count lowered and raised again earns nothing twice. Each earning
+// keeps the post's full counts at that moment (content_rewards).
 //
 // Earnings don't go straight into the wallet: they wait in
 // content_reward_balances until the account pays them out, up to
@@ -91,10 +91,10 @@ export function fresh(shown: Counts, credited: Counts) {
 	return { d, engagements: ENGAGING.reduce((n, m) => n + d[m], 0), views: d.views };
 }
 
-// credited after a window: the share the pay covered of what was new
-export function creditAfter(shown: Counts, credited: Counts, d: Counts, share: number) {
+// credited after a post earns: everything it shows, so only a rise earns again
+export function creditAfter(shown: Counts, credited: Counts) {
 	const out = {} as Counts;
-	for (const m of METRICS) out[m] = Math.min(Math.max(shown[m], credited[m]), credited[m] + Math.ceil(d[m] * share));
+	for (const m of METRICS) out[m] = Math.max(shown[m], credited[m]);
 	return out;
 }
 
@@ -133,8 +133,7 @@ export async function payWindow(endMs: number, r: RewardRules, run: Run = begin)
 		for (const c of viral) {
 			const cents = payoutFor(c.engagements, c.views, r);
 			if (cents <= 0) continue;
-			const share = Math.min(1, cents / Math.max(1, uncapped(c.engagements, c.views, r)));
-			const next = creditAfter(c.shown, c.credited, c.d, share);
+			const next = creditAfter(c.shown, c.credited);
 			await tx`insert into content_reward_credited (post_id, likes, reposts, replies, quotes, bookmarks, views, updated_at)
 				values (${c.id}::bigint, ${next.likes}, ${next.reposts}, ${next.replies}, ${next.quotes}, ${next.bookmarks}, ${next.views}, now())
 				on conflict (post_id) do update set likes = excluded.likes, reposts = excluded.reposts, replies = excluded.replies,

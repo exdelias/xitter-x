@@ -55,22 +55,21 @@ test("the engagement rate scales the pay from half to double", () => {
 	expect(rateFactor(50, 1_000, { ...r, rate_bonus: false })).toBe(1);
 });
 
-test("a post counts what it shows, and each gain earns once", () => {
+test("a post counts what it shows, and earns again only when its counts rise", () => {
 	const zero = { likes: 0, reposts: 0, replies: 0, quotes: 0, bookmarks: 0, views: 0 };
 	const shown = { likes: 1_000, reposts: 20, replies: 30, quotes: 0, bookmarks: 50, views: 10_000 };
 	const f = fresh(shown, zero);
 	expect(f.engagements).toBe(1_100);
 	expect(f.views).toBe(10_000);
-	// all paid for: everything credited, nothing new next time
-	const all = creditAfter(shown, zero, f.d, 1);
-	expect(all).toEqual(shown);
-	expect(fresh(shown, all).engagements).toBe(0);
-	// a tenth paid for: the rest stays to earn
-	const part = creditAfter(shown, zero, f.d, 0.1);
-	expect(part.likes).toBe(100);
-	expect(fresh(shown, part).engagements).toBe(990);
+	// earned: everything it shows is rewarded, however much the pay was held to
+	const after = creditAfter(shown, zero);
+	expect(after).toEqual(shown);
+	// nothing changed: nothing new, so no reward
+	expect(fresh(shown, after).engagements).toBe(0);
+	expect(fresh(shown, after).views).toBe(0);
 	// a count lowered, then raised back, earns nothing twice
-	expect(fresh({ ...shown, likes: 400 }, all).engagements).toBe(0);
-	expect(fresh(shown, all).engagements).toBe(0);
-	expect(fresh({ ...shown, likes: 1_250 }, all).engagements).toBe(250);
+	expect(fresh({ ...shown, likes: 400 }, after).engagements).toBe(0);
+	expect(creditAfter({ ...shown, likes: 400 }, after).likes).toBe(1_000);
+	// only a rise earns
+	expect(fresh({ ...shown, likes: 1_250 }, after).engagements).toBe(250);
 });
