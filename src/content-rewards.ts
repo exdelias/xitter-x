@@ -1,11 +1,11 @@
-// Original Content Rewards: every 15 minutes, posts and replies going viral
-// pay their authors in Equicoins (money.ts), straight into their wallets.
+// Original Content Rewards: every 3 minutes, posts and replies going viral
+// earn their authors Equicoins (money.ts), held for payout.
 //
-// Each window is a quarter of an hour (UTC, :00, :15, :30, :45), paid once it
-// has ended: its row in content_reward_runs is written in the same
-// transaction as its payouts, so a restart or a second process can't pay a
-// window twice. Windows missed while the server was down are caught up, up
-// to an hour back; switching the program on starts it from that moment.
+// Each window is 3 minutes (UTC, :00, :03, :06, ...), paid once it has
+// ended: its row in content_reward_runs is written in the same transaction
+// as its earnings, so a restart or a second process can't pay a window
+// twice. Windows missed while the server was down are caught up, up to an
+// hour back; switching the program on starts it from that moment.
 //
 // A post goes viral in a window when enough other accounts engaged with it
 // (liked, reposted, replied, quoted or bookmarked it) or saw it for the first
@@ -36,9 +36,9 @@ import { newId } from "./ids";
 import { ensureWallet } from "./money";
 import { feature, settings } from "./settings";
 
-export const WINDOW_MS = 15 * 60_000;
+export const WINDOW_MS = 3 * 60_000;
 // windows caught up at most after a pause, the latest included
-const CATCH_UP = 4;
+const CATCH_UP = 20;
 
 export type RewardRules = ReturnType<typeof settings>["content_rewards"];
 
@@ -62,9 +62,12 @@ export function rateFactor(engagements: number, views: number, r: RewardRules) {
 	return Math.min(2, Math.max(0.5, 0.5 + (engagements / views) * 10));
 }
 
-// what a viral post earns in one window, before the account's daily most
-export const payoutFor = (engagements: number, views: number, r: RewardRules) =>
-	Math.min(r.max_post_cents, Math.floor((engagements * r.cents_per_engagement + Math.floor((views * r.cents_per_1000_views) / 1000)) * rateFactor(engagements, views, r)));
+// what a post's engagements and views are worth, before the most for one post
+export const uncapped = (engagements: number, views: number, r: RewardRules) =>
+	Math.floor((engagements * r.cents_per_engagement + Math.floor((views * r.cents_per_1000_views) / 1000)) * rateFactor(engagements, views, r));
+
+// what a viral post earns in one window
+export const payoutFor = (engagements: number, views: number, r: RewardRules) => Math.min(r.max_post_cents, uncapped(engagements, views, r));
 
 // what each post got in the window: the other accounts' engagements, one
 // row per account and post (the author's own left out)
@@ -131,13 +134,8 @@ export async function payWindow(endMs: number, r: RewardRules, run: Run = begin)
 					+ greatest(coalesce((c->>'bookmarks')::int, bookmarks) - bookmarks, 0)) as eng,
 					greatest(coalesce((c->>'views')::int, views) - views, 0) as vw
 				from o
-			), upd as (
-				insert into content_reward_override_seen (post_id, engagements, views) select id, eng, vw from extra
-				on conflict (post_id) do update set engagements = greatest(content_reward_override_seen.engagements, excluded.engagements),
-					views = greatest(content_reward_override_seen.views, excluded.views)
-				returning 1
 			)
-			select e.id::text, p.user_id::text as author, greatest(e.eng - coalesce(seen.engagements, 0), 0) as engagements, greatest(e.vw - coalesce(seen.views, 0), 0) as views
+			select e.id::text, p.user_id::text as author, coalesce(seen.engagements, 0) as seen_eng, coalesce(seen.views, 0) as seen_vw, greatest(e.eng - coalesce(seen.engagements, 0), 0) as engagements, greatest(e.vw - coalesce(seen.views, 0), 0) as views
 			from extra e join posts p on p.id = e.id left join content_reward_override_seen seen on seen.post_id = e.id
 			where e.eng > coalesce(seen.engagements, 0) or e.vw > coalesce(seen.views, 0)`;
 		const all = new Map<string, any>((candidates as any[]).map((c) => [c.id, c]));
@@ -146,24 +144,26 @@ export async function payWindow(endMs: number, r: RewardRules, run: Run = begin)
 			if (c) {
 				c.engagements += b.engagements;
 				c.views += b.views;
-			} else all.set(b.id, { id: b.id, author: b.author, engagements: b.engagements, views: b.views });
+				c.boost = b;
+			} else all.set(b.id, { id: b.id, author: b.author, engagements: b.engagements, views: b.views, boost: b });
 		}
 		const viral = [...all.values()].filter((c) => isViral(c.engagements, c.views, r));
 		if (!viral.length) return { posts: 0, cents: 0 };
-		// each account's room under its daily most, lowered as its posts are paid
-		const authors = [...new Set(viral.map((c) => c.author as string))];
-		const room = new Map<string, number>(authors.map((a) => [a, r.daily_cap_cents]));
-		for (const row of await tx`select author_id::text as id, sum(cents)::bigint as cents from content_rewards
-			where author_id = any(${sql.array(authors, "INT8")}) and created_at > now() - interval '1 day' group by 1`)
-			room.set(row.id, Math.max(0, r.daily_cap_cents - Number(row.cents)));
-		// the most engaged first, so a daily most cuts the smallest
+		// the most engaged first
 		viral.sort((a, b) => b.engagements - a.engagements || b.views - a.views);
 		const paid: string[] = [];
 		let total = 0;
 		for (const c of viral) {
-			const cents = Math.min(payoutFor(c.engagements, c.views, r), room.get(c.author) ?? 0);
+			const cents = payoutFor(c.engagements, c.views, r);
+			// a custom count's rise is credited in the share that was paid for:
+			// what a most cut off stays to earn in the next windows
+			if (c.boost && cents > 0) {
+				const share = Math.min(1, cents / Math.max(1, uncapped(c.engagements, c.views, r)));
+				await tx`insert into content_reward_override_seen (post_id, engagements, views)
+					values (${c.id}::bigint, ${c.boost.seen_eng + Math.ceil(c.boost.engagements * share)}, ${c.boost.seen_vw + Math.ceil(c.boost.views * share)})
+					on conflict (post_id) do update set engagements = excluded.engagements, views = excluded.views`;
+			}
 			if (cents <= 0) continue;
-			room.set(c.author, (room.get(c.author) ?? 0) - cents);
 			await tx`insert into content_rewards (id, window_end, post_id, author_id, engagements, views, cents)
 				values (${newId()}::bigint, ${end}, ${c.id}::bigint, ${c.author}::bigint, ${c.engagements}, ${c.views}, ${cents})`;
 			await hold(tx, c.author, cents, r);

@@ -103,8 +103,7 @@ export const moneyActions: Record<string, Action> = {
 				min_views: whole(b.min_views, "Views to go viral", 0, 1_000_000_000),
 				cents_per_engagement: cents(b.per_engagement, "The pay for an engagement", 0, 100_000),
 				cents_per_1000_views: cents(b.per_1000_views, "The pay for 1,000 views", 0, 1_000_000),
-				max_post_cents: cents(b.max_post, "The most for one post in 15 minutes", 1, 100_000_000),
-				daily_cap_cents: cents(b.daily_cap, "The most for one account in 24 hours", 1, 1_000_000_000),
+				max_post_cents: cents(b.max_post, "The most for one post in 3 minutes", 1, 100_000_000),
 				max_post_age_hours: whole(b.max_post_age_hours, "How old a post may be (hours)", 1, 720),
 				min_account_days: whole(b.min_account_days, "How old an engaging account must be (days)", 0, 3650),
 			};

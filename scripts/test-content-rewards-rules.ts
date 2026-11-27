@@ -6,10 +6,11 @@ import { settings } from "../src/settings";
 
 const at = (iso: string) => Date.parse(iso);
 
-test("windows end on the quarter hour, UTC", () => {
-	expect(windowEndBefore(at("2026-11-25T10:14:59.999Z"))).toBe(at("2026-11-25T10:00:00Z"));
+test("windows end every 3 minutes, UTC", () => {
+	expect(WINDOW_MS).toBe(3 * 60_000);
+	expect(windowEndBefore(at("2026-11-25T10:14:59.999Z"))).toBe(at("2026-11-25T10:12:00Z"));
 	expect(windowEndBefore(at("2026-11-25T10:15:00Z"))).toBe(at("2026-11-25T10:15:00Z"));
-	expect(windowEndBefore(at("2026-11-25T23:59:00Z"))).toBe(at("2026-11-25T23:45:00Z"));
+	expect(windowEndBefore(at("2026-11-25T23:59:00Z"))).toBe(at("2026-11-25T23:57:00Z"));
 });
 
 test("the first run pays only the window that just ended", () => {
@@ -21,8 +22,8 @@ test("each window is paid once, in order, and a pause is caught up an hour back"
 	expect(windowsToRun(latest, latest)).toEqual([]);
 	expect(windowsToRun(latest - WINDOW_MS, latest)).toEqual([latest]);
 	expect(windowsToRun(latest - 2 * WINDOW_MS, latest)).toEqual([latest - WINDOW_MS, latest]);
-	// down for a day: the last four windows, oldest first
-	expect(windowsToRun(latest - 96 * WINDOW_MS, latest)).toEqual([3, 2, 1, 0].map((n) => latest - n * WINDOW_MS));
+	// down for a day: the last hour's 20 windows, oldest first
+	expect(windowsToRun(latest - 480 * WINDOW_MS, latest)).toEqual([...Array(20).keys()].reverse().map((n) => latest - n * WINDOW_MS));
 });
 
 const rules = { ...settings().content_rewards, min_engagements: 20, min_views: 500, cents_per_engagement: 10, cents_per_1000_views: 100, max_post_cents: 5_000, rate_bonus: false };

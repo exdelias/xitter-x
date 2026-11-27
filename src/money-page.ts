@@ -371,8 +371,8 @@ ${viewer.actor ? "" : `<form method="post" action="/account/money/rewards" style
 		})
 		.join("\n");
 	const viral = [rules.min_engagements > 0 ? `${rules.min_engagements} engagements` : "", rules.min_views > 0 ? `${rules.min_views.toLocaleString("en-US")} views` : ""].filter(Boolean).join(" or ");
-	const body = `<section class="rw-total" aria-label="Total payouts"><div class="amount">${formatCents(r.paidOut)}</div><div class="label">Total payouts</div>
-${r.day ? `<div class="dim">${formatCents(r.day)} earned in the last 24 hours</div>` : ""}</section>
+	const body = `<section class="rw-total" aria-label="Total earnings"><div class="amount">${formatCents(r.total)}</div><div class="label">Total earnings</div>
+<div class="dim">${formatCents(r.paidOut)} paid out${r.day ? ` · ${formatCents(r.day)} in the last 24 hours` : ""}</div></section>
 ${notice ? `<div class="notice" role="status" style="margin:0 16px 8px">${esc(notice)}</div>` : ""}${error ? `<div class="notice error" role="alert" style="margin:0 16px 8px">${esc(error)}</div>` : ""}
 ${elig}
 ${ready}
@@ -382,12 +382,12 @@ ${payouts}
 <h2 class="rw-h">Earnings</h2>
 ${earnings || `<p class="empty">Nothing earned yet.</p>`}
 <details class="how"><summary>How it works</summary><ul>
-<li>Every 15 minutes, posts and replies of yours from the last ${rules.max_post_age_hours} hours that drew ${viral || "enough attention"} in those 15 minutes have gone viral, and earn.</li>
+<li>Every 3 minutes, posts and replies of yours from the last ${rules.max_post_age_hours} hours that drew ${viral || "enough attention"} in those 3 minutes have gone viral, and earn. Earnings update every 3 minutes.</li>
 <li>The more people engage, the more you earn: ${money(rules.cents_per_engagement)} for each account that liked, reposted, replied, quoted or bookmarked, and ${money(rules.cents_per_1000_views)} for each 1,000 accounts that saw it. Each account counts once per post; your own don't count.</li>
 ${rules.rate_bonus ? `<li>Your engagement rate (engagements per view) scales the payout: around 5% pays as above, lower pays down to half, higher up to double.</li>` : ""}
 <li>Earnings wait here until you pay them out into your Equicoins balance, whenever you like. You can hold up to ${formatCents(cap)}: reaching it pays everything out by itself within ${rules.payout_hours} hours.</li>
 <li>You need ${rules.min_followers.toLocaleString("en-US")} followers${rules.premium_only ? " and Premium" : ""} to take part.</li>
-<li>Up to ${formatCents(rules.max_post_cents)} for one post in 15 minutes, and ${formatCents(rules.daily_cap_cents)} for all of yours in 24 hours. Accounts newer than ${rules.min_account_days} days, and hidden or limited posts, don't count.</li>
+<li>Up to ${formatCents(rules.max_post_cents)} for one post in 3 minutes (more carries over to the next), with no daily limit. Accounts newer than ${rules.min_account_days} days, and hidden or limited posts, don't count.</li>
 </ul></details>`;
 	return page(req, viewer, "Original Content Rewards", body, status);
 }

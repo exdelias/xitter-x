@@ -155,7 +155,7 @@ const DEFAULTS = {
 	// crypto.ts: buying and selling coins with Equicoins at real market prices
 	money_crypto: { enabled: true },
 	money_shop: { enabled: false, announcement: null as null | { id: string; text: string; buttons: { label: string; url: string }[] } },
-	// Original Content Rewards (content-rewards.ts): every 15 minutes, posts
+	// Original Content Rewards (content-rewards.ts): every 3 minutes, posts
 	// going viral pay their authors in Equicoins. An engagement is another
 	// account liking, reposting, replying, quoting or bookmarking, once per
 	// account and post; the cents are per engagement and per 1,000 views
@@ -171,12 +171,11 @@ const DEFAULTS = {
 		// them out by themselves within payout_hours
 		payout_cap_cents: 183_500,
 		payout_hours: 12,
-		min_engagements: 20,
-		min_views: 500,
+		min_engagements: 5,
+		min_views: 100,
 		cents_per_engagement: 10,
 		cents_per_1000_views: 100,
 		max_post_cents: 5_000,
-		daily_cap_cents: 20_000,
 		max_post_age_hours: 72,
 		min_account_days: 7,
 	},

@@ -411,7 +411,7 @@ setInterval(
 			}),
 	60_000,
 ).unref();
-// Original Content Rewards pay each 15-minute window once it has ended (content-rewards.ts)
+// Original Content Rewards pay each 3-minute window once it has ended (content-rewards.ts)
 setInterval(
 	() =>
 		payContentRewards()

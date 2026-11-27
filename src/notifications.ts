@@ -111,7 +111,7 @@ async function items(viewerId: string, opts: { before?: number; after?: number; 
 				out.push({ kind: "money", key: `gift-${r.id}`, at: ms(r.at), users: [String(r.user_id)], path: "/i/xmoney/shop", text: `gave you “${clip(r.item_name)}”` });
 			for (const r of declined)
 				out.push({ kind: "money", key: `declined-${r.id}`, at: ms(r.at), users: [String(r.payer_id)], path: `/i/xmoney/r/${r.id}`, text: `declined your request for ${formatCents(Number(r.amount_cents))}` });
-			// Original Content Rewards (content-rewards.ts): one for each 15 minutes that paid, at the time it was paid
+			// Original Content Rewards (content-rewards.ts): one for each 3 minutes that paid, at the time it was paid
 			const earned = await sql`select c.window_end, max(c.created_at) as at, count(*)::int as posts, sum(c.cents)::bigint as cents from content_rewards c
 				where c.author_id = ${viewerId}::bigint group by c.window_end having max(c.created_at) >= ${lo} and max(c.created_at) < ${hi}
 				order by at desc limit ${opts.limit}`;
