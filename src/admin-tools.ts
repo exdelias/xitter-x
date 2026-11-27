@@ -518,7 +518,7 @@ export const toolActions: Record<string, Action> = {
 			return {};
 		},
 	},
-	// the counts a post shows; a blank one goes back to the real count
+	// custom counts a post shows on top of its real ones; a blank one adds nothing
 	setPostCounts: {
 		role: "admin",
 		run: async (a, b) => {

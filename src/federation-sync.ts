@@ -53,12 +53,12 @@ const userCounts = async (id: string) => {
 
 const postCounts = async (id: string) => {
 	const [c] = await sql`select
-		coalesce((p.count_overrides->>'likes')::int, (select count(*)::int from likes x where x.post_id = p.id)) as likes,
-		coalesce((p.count_overrides->>'reposts')::int, (select count(*)::int from reposts x where x.post_id = p.id)) as reposts,
-		coalesce((p.count_overrides->>'replies')::int, (select count(*)::int from posts x where x.reply_to_id = p.id)) as replies,
-		coalesce((p.count_overrides->>'quotes')::int, (select count(*)::int from posts x where x.quote_id = p.id)) as quotes,
-		coalesce((p.count_overrides->>'bookmarks')::int, (select count(*)::int from bookmarks x where x.post_id = p.id)) as bookmarks,
-		coalesce((p.count_overrides->>'views')::int, (select count(*)::int from post_views x where x.post_id = p.id)) as views
+		(coalesce((p.count_overrides->>'likes')::int, 0) + (select count(*)::int from likes x where x.post_id = p.id)) as likes,
+		(coalesce((p.count_overrides->>'reposts')::int, 0) + (select count(*)::int from reposts x where x.post_id = p.id)) as reposts,
+		(coalesce((p.count_overrides->>'replies')::int, 0) + (select count(*)::int from posts x where x.reply_to_id = p.id)) as replies,
+		(coalesce((p.count_overrides->>'quotes')::int, 0) + (select count(*)::int from posts x where x.quote_id = p.id)) as quotes,
+		(coalesce((p.count_overrides->>'bookmarks')::int, 0) + (select count(*)::int from bookmarks x where x.post_id = p.id)) as bookmarks,
+		(coalesce((p.count_overrides->>'views')::int, 0) + (select count(*)::int from post_views x where x.post_id = p.id)) as views
 		from posts p where p.id = ${id}::bigint`;
 	return c ? { likes: c.likes, reposts: c.reposts, replies: c.replies, quotes: c.quotes, bookmarks: c.bookmarks, views: c.views } : undefined;
 };

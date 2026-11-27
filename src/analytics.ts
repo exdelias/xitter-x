@@ -50,20 +50,19 @@ const counted = {
 	Reply: () => sql`(select count(*)::int from posts x where x.reply_to_id = p.id and x.user_id <> p.user_id)`,
 	Bookmark: () => sql`(select count(*)::int from bookmarks x where x.post_id = p.id and x.user_id <> p.user_id)`,
 };
-// a post's count, or the one staff set for it (admin setPostCounts)
-const shown = (key: string, type: keyof typeof counted) => sql`coalesce((p.count_overrides->>${key}::text)::int, ${counted[type]()})`;
+// a post's count: the real one plus the custom one staff set (admin setPostCounts)
+const shown = (key: string, type: keyof typeof counted) => sql`(coalesce((p.count_overrides->>${key}::text)::int, 0) + ${counted[type]()})`;
 
 // The counts staff set on the posts matching `where`, as engagements: what
-// they add to (or take from) the real ones, at the time the post was
-// published. Rows of (type, at, actor, n), with no actor.
+// they add to the real ones, at the time the post was published. Rows of (type, at, actor, n), with no actor.
 const setCounts = (where: ReturnType<typeof sql>) => sql`
 	select d.type, p.created_at as at, null::bigint as actor, d.n from posts p cross join lateral (values
-		('Displayed', (p.count_overrides->>'views')::int - ${counted.Displayed()}),
-		('Fav', (p.count_overrides->>'likes')::int - ${counted.Fav()}),
-		('Retweet', (p.count_overrides->>'reposts')::int - ${counted.Retweet()}),
-		('QuoteTweet', (p.count_overrides->>'quotes')::int - ${counted.QuoteTweet()}),
-		('Reply', (p.count_overrides->>'replies')::int - ${counted.Reply()}),
-		('Bookmark', (p.count_overrides->>'bookmarks')::int - ${counted.Bookmark()})
+		('Displayed', coalesce((p.count_overrides->>'views')::int, 0)),
+		('Fav', coalesce((p.count_overrides->>'likes')::int, 0)),
+		('Retweet', coalesce((p.count_overrides->>'reposts')::int, 0)),
+		('QuoteTweet', coalesce((p.count_overrides->>'quotes')::int, 0)),
+		('Reply', coalesce((p.count_overrides->>'replies')::int, 0)),
+		('Bookmark', coalesce((p.count_overrides->>'bookmarks')::int, 0))
 	) d(type, n) where ${where} and p.count_overrides is not null and d.n <> 0`;
 
 // Every engagement on the account's posts and profile, and its own new posts,
@@ -207,10 +206,10 @@ async function postCard(v: Viewer, p: any) {
 	const [totals, media, author] = await Promise.all([postTotals([p.id]), mediaEntities([p.id]), userById(v.id, p.user_id)]);
 	const t = totals.get(p.id);
 	// the counts under the post are its public ones, the author's own included
-	const [c] = await sql`select coalesce((p.count_overrides->>'bookmarks')::int, (select count(*)::int from bookmarks where post_id = p.id)) as bookmark_count,
-		coalesce((p.count_overrides->>'likes')::int, (select count(*)::int from likes where post_id = p.id)) as favorite_count,
-		coalesce((p.count_overrides->>'replies')::int, (select count(*)::int from posts where reply_to_id = p.id)) as reply_count,
-		coalesce((p.count_overrides->>'reposts')::int, (select count(*)::int from reposts where post_id = p.id)) as retweet_count
+	const [c] = await sql`select (coalesce((p.count_overrides->>'bookmarks')::int, 0) + (select count(*)::int from bookmarks where post_id = p.id)) as bookmark_count,
+		(coalesce((p.count_overrides->>'likes')::int, 0) + (select count(*)::int from likes where post_id = p.id)) as favorite_count,
+		(coalesce((p.count_overrides->>'replies')::int, 0) + (select count(*)::int from posts where reply_to_id = p.id)) as reply_count,
+		(coalesce((p.count_overrides->>'reposts')::int, 0) + (select count(*)::int from reposts where post_id = p.id)) as retweet_count
 		from posts p where p.id = ${p.id}::bigint`;
 	return {
 		details: details(p),

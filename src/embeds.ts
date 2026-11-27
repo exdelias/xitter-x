@@ -50,10 +50,10 @@ async function publicPost(id: string, withQuote = true): Promise<Post | undefine
 	if (!isId(id)) return undefined;
 	const [p] = await sql`select p.id::text, p.user_id::text, p.text, p.created_at, p.sensitive and not u.never_sensitive as sensitive, u.never_sensitive,
 		p.quote_id::text, (select r.screen_name from users r where r.id = p.reply_to_user_id) as reply_screen_name,
-		coalesce((p.count_overrides->>'replies')::int, greatest((p.remote_counts->>'replies')::int, (select count(*)::int from posts x where x.reply_to_id = p.id and x.user_id not in ${SUSPENDED}))) as replies,
-		coalesce((p.count_overrides->>'reposts')::int, greatest((p.remote_counts->>'reposts')::int, (select count(*)::int from reposts x where x.post_id = p.id and x.user_id not in ${SUSPENDED}))) as reposts,
-		coalesce((p.count_overrides->>'likes')::int, greatest((p.remote_counts->>'likes')::int, (select count(*)::int from likes x where x.post_id = p.id and x.user_id not in ${SUSPENDED}))) as likes,
-		coalesce((p.count_overrides->>'views')::int, greatest((p.remote_counts->>'views')::int, (select count(*)::int from post_views x where x.post_id = p.id))) as views
+		(coalesce((p.count_overrides->>'replies')::int, 0) + greatest((p.remote_counts->>'replies')::int, (select count(*)::int from posts x where x.reply_to_id = p.id and x.user_id not in ${SUSPENDED}))) as replies,
+		(coalesce((p.count_overrides->>'reposts')::int, 0) + greatest((p.remote_counts->>'reposts')::int, (select count(*)::int from reposts x where x.post_id = p.id and x.user_id not in ${SUSPENDED}))) as reposts,
+		(coalesce((p.count_overrides->>'likes')::int, 0) + greatest((p.remote_counts->>'likes')::int, (select count(*)::int from likes x where x.post_id = p.id and x.user_id not in ${SUSPENDED}))) as likes,
+		(coalesce((p.count_overrides->>'views')::int, 0) + greatest((p.remote_counts->>'views')::int, (select count(*)::int from post_views x where x.post_id = p.id))) as views
 		from posts p join users u on u.id = p.user_id where p.id = ${id}::bigint and not p.hidden and p.circle_owner_id is null`;
 	if (!p) return undefined;
 	const author = await publicAuthor(sql`id = ${p.user_id}::bigint`);

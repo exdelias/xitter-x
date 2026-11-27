@@ -8,8 +8,8 @@
 // hour back; switching the program on starts it from that moment.
 //
 // A post's counts are the ones it shows: its likes, reposts, replies, quotes,
-// bookmarks and views, real and custom (count_overrides) as one, exactly as
-// posts.ts counts them. content_reward_credited keeps, per post, the counts
+// bookmarks and views: the real count plus the custom one (count_overrides),
+// exactly as posts.ts counts them. content_reward_credited keeps, per post, the counts
 // it showed when it last earned; each window, what it shows above that is
 // new, and the post goes viral when enough is new (engagements, or views).
 // When it earns, everything new is paid in full and everything it shows is
@@ -74,12 +74,12 @@ const ENGAGING = ["likes", "reposts", "replies", "quotes", "bookmarks"] as const
 // a post's counts as it shows them (posts.ts): a custom count wins over the real one
 const SUSPENDED = sql`(select id from users where status = 'suspended' or instance_blocked)`;
 const shownCounts = (p: any) => sql`
-	coalesce((${p}.count_overrides->>'likes')::int, (select count(*)::int from likes x where x.post_id = ${p}.id and x.user_id not in ${SUSPENDED})) as likes,
-	coalesce((${p}.count_overrides->>'reposts')::int, (select count(*)::int from reposts x where x.post_id = ${p}.id and x.user_id not in ${SUSPENDED})) as reposts,
-	coalesce((${p}.count_overrides->>'replies')::int, (select count(*)::int from posts x where x.reply_to_id = ${p}.id and x.user_id not in ${SUSPENDED})) as replies,
-	coalesce((${p}.count_overrides->>'quotes')::int, (select count(*)::int from posts x where x.quote_id = ${p}.id and x.user_id not in ${SUSPENDED})) as quotes,
-	coalesce((${p}.count_overrides->>'bookmarks')::int, (select count(*)::int from bookmarks x where x.post_id = ${p}.id)) as bookmarks,
-	coalesce((${p}.count_overrides->>'views')::int, (select count(*)::int from post_views x where x.post_id = ${p}.id)) as views`;
+	(coalesce((${p}.count_overrides->>'likes')::int, 0) + (select count(*)::int from likes x where x.post_id = ${p}.id and x.user_id not in ${SUSPENDED})) as likes,
+	(coalesce((${p}.count_overrides->>'reposts')::int, 0) + (select count(*)::int from reposts x where x.post_id = ${p}.id and x.user_id not in ${SUSPENDED})) as reposts,
+	(coalesce((${p}.count_overrides->>'replies')::int, 0) + (select count(*)::int from posts x where x.reply_to_id = ${p}.id and x.user_id not in ${SUSPENDED})) as replies,
+	(coalesce((${p}.count_overrides->>'quotes')::int, 0) + (select count(*)::int from posts x where x.quote_id = ${p}.id and x.user_id not in ${SUSPENDED})) as quotes,
+	(coalesce((${p}.count_overrides->>'bookmarks')::int, 0) + (select count(*)::int from bookmarks x where x.post_id = ${p}.id)) as bookmarks,
+	(coalesce((${p}.count_overrides->>'views')::int, 0) + (select count(*)::int from post_views x where x.post_id = ${p}.id)) as views`;
 
 // what of `shown` hasn't earned yet, per count
 export function fresh(shown: Counts, credited: Counts) {
