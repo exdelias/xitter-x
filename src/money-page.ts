@@ -388,7 +388,7 @@ ${earnings || `<p class="empty">Nothing earned yet.</p>`}
 ${rules.rate_bonus ? `<li>Your engagement rate (engagements per view) scales the payout: around 5% pays as above, lower pays down to half, higher up to double.</li>` : ""}
 <li>Earnings wait here until you pay them out into your Equicoins balance, whenever you like. You can hold up to ${formatCents(cap)}: reaching it pays everything out by itself within ${rules.payout_hours} hours.</li>
 <li>You need ${rules.min_followers.toLocaleString("en-US")} followers${rules.premium_only ? " and Premium" : ""} to take part.</li>
-<li>Up to ${formatCents(rules.max_post_cents)} for one post in 3 minutes, with no daily limit. A post earns again only when its counts rise. Hidden or limited posts don't count.</li>
+<li>No limits: every new engagement and view is paid in full. Only what's new earns, so a post earns again only when its counts rise. Hidden or limited posts don't count.</li>
 </ul></details>`;
 	return page(req, viewer, "Original Content Rewards", body, status);
 }

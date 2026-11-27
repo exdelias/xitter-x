@@ -2087,3 +2087,5 @@ alter table content_rewards add column if not exists replies int;
 alter table content_rewards add column if not exists quotes int;
 alter table content_rewards add column if not exists bookmarks int;
 alter table content_rewards add column if not exists total_views int;
+-- with no most for one post, one earning can be large
+alter table content_rewards alter column cents type bigint;

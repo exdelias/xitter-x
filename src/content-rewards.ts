@@ -12,8 +12,8 @@
 // posts.ts counts them. content_reward_credited keeps, per post, the counts
 // it showed when it last earned; each window, what it shows above that is
 // new, and the post goes viral when enough is new (engagements, or views).
-// When it earns, everything it shows is rewarded (above the most for one
-// post is not paid later), so a post earns again only when its counts rise,
+// When it earns, everything new is paid in full and everything it shows is
+// rewarded, so a post earns again only when its counts rise,
 // and a count lowered and raised again earns nothing twice. Each earning
 // keeps the post's full counts at that moment (content_rewards).
 //
@@ -62,12 +62,9 @@ export function rateFactor(engagements: number, views: number, r: RewardRules) {
 	return Math.min(2, Math.max(0.5, 0.5 + (engagements / views) * 10));
 }
 
-// what a post's engagements and views are worth, before the most for one post
-export const uncapped = (engagements: number, views: number, r: RewardRules) =>
+// what a viral post earns in one window: every new engagement and view, in full
+export const payoutFor = (engagements: number, views: number, r: RewardRules) =>
 	Math.floor((engagements * r.cents_per_engagement + Math.floor((views * r.cents_per_1000_views) / 1000)) * rateFactor(engagements, views, r));
-
-// what a viral post earns in one window
-export const payoutFor = (engagements: number, views: number, r: RewardRules) => Math.min(r.max_post_cents, uncapped(engagements, views, r));
 
 export const METRICS = ["likes", "reposts", "replies", "quotes", "bookmarks", "views"] as const;
 export type Metric = (typeof METRICS)[number];

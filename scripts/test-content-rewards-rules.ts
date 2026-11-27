@@ -26,7 +26,7 @@ test("each window is paid once, in order, and a pause is caught up an hour back"
 	expect(windowsToRun(latest - 480 * WINDOW_MS, latest)).toEqual([...Array(20).keys()].reverse().map((n) => latest - n * WINDOW_MS));
 });
 
-const rules = { ...settings().content_rewards, min_engagements: 20, min_views: 500, cents_per_engagement: 10, cents_per_1000_views: 100, max_post_cents: 5_000, rate_bonus: false };
+const rules = { ...settings().content_rewards, min_engagements: 20, min_views: 500, cents_per_engagement: 10, cents_per_1000_views: 100, rate_bonus: false };
 
 test("viral takes enough engagements or enough views", () => {
 	expect(isViral(19, 499, rules)).toBe(false);
@@ -41,7 +41,9 @@ test("a payout is per engagement and per 1,000 views, up to the most per post", 
 	expect(payoutFor(20, 0, rules)).toBe(200);
 	expect(payoutFor(20, 1_500, rules)).toBe(350);
 	expect(payoutFor(0, 999, rules)).toBe(99);
-	expect(payoutFor(1_000, 100_000, rules)).toBe(5_000);
+	// no most for one post: a big jump (custom counts) is paid in full
+	expect(payoutFor(100_000, 0, rules)).toBe(1_000_000);
+	expect(payoutFor(1_000, 100_000, rules)).toBe(20_000);
 });
 
 test("the engagement rate scales the pay from half to double", () => {

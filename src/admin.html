@@ -1295,7 +1295,6 @@ const RENDER = {
 				num("rwviews", "Views in 15 minutes to go viral (0: engagements alone)", r.min_views) +
 				cash("rwpe", "Paid for each engagement ($)", r.cents_per_engagement) +
 				cash("rwpv", "Paid for each 1,000 views ($)", r.cents_per_1000_views) +
-				cash("rwmax", "Most for one post in 15 minutes ($)", r.max_post_cents) +
 				num("rwage", "Posts earn for this many hours after they're posted", r.max_post_age_hours) +
 				'<p class="dim small">Switched on, it starts with the 15 minutes running now. Accounts see their payouts on Equicoins › Rewards and in Notifications.</p>' +
 				(can_ ? '<button class="btn primary" id="rwsave">Save</button>' : "") + "</div>" +
@@ -1387,7 +1386,7 @@ const RENDER = {
 			if (!(await ask((approve ? "Approve" : "Reject and refund") + " this shop request?"))) return;
 			act(() => api("reviewShopOrder", { id: b.dataset.shopReview, approve }), approve ? "Shop request approved" : "Request rejected and refunded").then(again);
 		});
-		if ($("#rwsave")) $("#rwsave").onclick = () => act(() => api("saveContentRewards", { enabled: $("#rwon").checked, premium_only: $("#rwprem").checked, min_followers: $("#rwfol").value, rate_bonus: $("#rwrate").checked, payout_cap: $("#rwcap").value, payout_hours: $("#rwph").value, min_engagements: $("#rweng").value, min_views: $("#rwviews").value, per_engagement: $("#rwpe").value, per_1000_views: $("#rwpv").value, max_post: $("#rwmax").value, max_post_age_hours: $("#rwage").value }), "Rewards saved").then(again);
+		if ($("#rwsave")) $("#rwsave").onclick = () => act(() => api("saveContentRewards", { enabled: $("#rwon").checked, premium_only: $("#rwprem").checked, min_followers: $("#rwfol").value, rate_bonus: $("#rwrate").checked, payout_cap: $("#rwcap").value, payout_hours: $("#rwph").value, min_engagements: $("#rweng").value, min_views: $("#rwviews").value, per_engagement: $("#rwpe").value, per_1000_views: $("#rwpv").value, max_post_age_hours: $("#rwage").value }), "Rewards saved").then(again);
 		if ($("#msave")) $("#msave").onclick = () => act(() => api("saveMoney", { starting: $("#ms").value, max_transfer: $("#mx").value, like: $("#ml").value, feed: $("#mf").value, follow_network: !!$("#mnet")?.checked, peer_daily: $("#mcap").value, move_balance: $("#mmove").checked, network_totals: $("#mtot").checked }), "Equicoins settings saved").then(again);
 		if ($("#madj")) $("#madj").onclick = () => act(async () => { const r = await api("adjustMoney", { handle: $("#mah").value, amount: $("#maa").value }); notice("@" + r.to + " now has " + usd(r.balance)); }).then(again);
 		$("#mqs").onclick = again;

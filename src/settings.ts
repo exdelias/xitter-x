@@ -175,7 +175,6 @@ const DEFAULTS = {
 		min_views: 100,
 		cents_per_engagement: 10,
 		cents_per_1000_views: 100,
-		max_post_cents: 5_000,
 		max_post_age_hours: 72,
 	},
 	// client-choice.ts: which web client people get when the instance serves more
