@@ -15,6 +15,10 @@
 // the day it started, so it ends at the end of the current month. Until
 // then the account can keep the plan after all. Staff ending a plan ends it
 // at once.
+//
+// A verified account that is an affiliate of an organisation holds Premium
+// for as long as both stay true (premium_source 'affiliate'); then it ends,
+// and the account asks for its own like anyone else.
 
 import { sql } from "./db";
 import { newId } from "./ids";
@@ -62,8 +66,8 @@ const periodEnd = () => sql`premium_since + ((extract(year from age(now(), premi
 // `period_end`: when the plan would end if cancelled now
 export async function planOf(userId: string) {
 	const [u] = await sql`select premium_tier as tier, premium_since as since, premium_until as until, premium_checkmark as checkmark, premium_cancel_at as cancel_at,
-		coalesce(premium_until, ${periodEnd()}) as period_end from users where id = ${userId}::bigint`;
-	return u?.tier ? (u as { tier: Tier; since: Date; until: Date | null; checkmark: boolean; cancel_at: Date | null; period_end: Date }) : null;
+		coalesce(premium_until, ${periodEnd()}) as period_end, premium_source as source from users where id = ${userId}::bigint`;
+	return u?.tier ? (u as { tier: Tier; since: Date; until: Date | null; checkmark: boolean; cancel_at: Date | null; period_end: Date; source: string | null }) : null;
 }
 
 export async function requestsOf(userId: string, limit = 10) {
@@ -105,13 +109,13 @@ async function setPlan(tx: Db, userId: string, tier: Tier, end: Date | null) {
 		await tx`update users set verified_type = null, verified_at = null, premium_checkmark = false where id = ${userId}::bigint`;
 	// a new decision from staff, or an approved switch, undoes a cancellation
 	await tx`update users set premium_tier = ${tier}, premium_since = case when premium_tier is null then now() else premium_since end, premium_until = ${end},
-		premium_cancel_at = null where id = ${userId}::bigint`;
+		premium_cancel_at = null, premium_source = null where id = ${userId}::bigint`;
 }
 
 async function endPlan(tx: Db, userId: string) {
 	await tx`update users set verified_type = case when premium_checkmark and verified_type = 'blue' then null else verified_type end,
 		verified_at = case when premium_checkmark and verified_type = 'blue' then null else verified_at end,
-		premium_tier = null, premium_since = null, premium_until = null, premium_checkmark = false, premium_cancel_at = null where id = ${userId}::bigint`;
+		premium_tier = null, premium_since = null, premium_until = null, premium_checkmark = false, premium_cancel_at = null, premium_source = null where id = ${userId}::bigint`;
 }
 
 const checkEnd = (end: Date | null) => {
@@ -163,6 +167,7 @@ export async function grantPlan(actorId: string, userId: string, tier: unknown, 
 
 // the account cancels its plan: it ends when the period it is in does
 export async function cancelPremium(userId: string): Promise<Date> {
+	if ((await planOf(userId))?.source === "affiliate") throw new PremiumError("Your Premium comes with your organisation. It ends when you're no longer its affiliate.");
 	const [u] = await sql`update users set premium_cancel_at = coalesce(premium_until, ${periodEnd()})
 		where id = ${userId}::bigint and premium_tier is not null and premium_cancel_at is null returning premium_cancel_at`;
 	if (u) return u.premium_cancel_at;
@@ -198,6 +203,27 @@ export async function expirePremium() {
 		return rows.length;
 	});
 	return ended as number;
+}
+
+// verified affiliates hold Premium, and lose it when they stop being either;
+// run every minute (server.ts), as affiliations change in many places
+const affiliated = (u: any) =>
+	sql`${u}.instance is null and ${u}.status = 'active' and ${u}.verified_type is not null and exists (select 1 from affiliations a where a.user_id = ${u}.id)`;
+
+export async function syncAffiliatePremium() {
+	if (!feature("premium")) return { granted: 0, ended: 0 };
+	return sql.begin(async (tx) => {
+		const granted = await tx`update users u set premium_tier = 'premium', premium_since = now(), premium_until = null, premium_cancel_at = null,
+			premium_checkmark = false, premium_source = 'affiliate' where u.premium_tier is null and ${affiliated(sql`u`)} returning u.id::text`;
+		for (const r of granted)
+			await message(tx, r.id, null, "You have Premium as a verified affiliate of an organisation. It stays for as long as you're both.");
+		const gone = await tx`select u.id::text from users u where u.premium_source = 'affiliate' and not (${affiliated(sql`u`)}) for update skip locked`;
+		for (const r of gone) {
+			await endPlan(tx, r.id);
+			await message(tx, r.id, null, "Your Premium from your organisation has ended, as you're no longer a verified affiliate. You can ask for a plan of your own.");
+		}
+		return { granted: granted.length, ended: gone.length };
+	});
 }
 
 // Admin > Premium: what's waiting and who has a plan

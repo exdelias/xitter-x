@@ -95,6 +95,8 @@ export const moneyActions: Record<string, Action> = {
 			const next = {
 				enabled: b.enabled === true,
 				premium_only: b.premium_only === true,
+				min_followers: whole(b.min_followers, "Followers needed to earn", 0, 1_000_000_000),
+				rate_bonus: b.rate_bonus === true,
 				min_engagements: whole(b.min_engagements, "Engagements to go viral", 0, 1_000_000),
 				min_views: whole(b.min_views, "Views to go viral", 0, 1_000_000_000),
 				cents_per_engagement: cents(b.per_engagement, "The pay for an engagement", 0, 100_000),

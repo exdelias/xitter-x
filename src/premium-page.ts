@@ -40,8 +40,12 @@ async function page(req: Request, viewer: Viewer, error = "") {
 		const checkmark = plan.checkmark ? ", and so does the checkmark that came with it" : "";
 		const term = plan.cancel_at
 			? `Since ${date(plan.since)}. Cancelled: it ends on ${date(plan.cancel_at)}`
-			: `Since ${date(plan.since)}, ${plan.until ? `until ${date(plan.until)}` : "month to month with no end date"}`;
-		const action = plan.cancel_at
+			: plan.source === "affiliate"
+				? `Since ${date(plan.since)}, from your organisation`
+				: `Since ${date(plan.since)}, ${plan.until ? `until ${date(plan.until)}` : "month to month with no end date"}`;
+		const action = plan.source === "affiliate"
+			? `<p class="dim" style="margin-top:12px">It comes with being a verified affiliate of an organisation, and ends when you're no longer one.</p>`
+			: plan.cancel_at
 			? `<form method="post" action="/account/premium" style="margin-top:12px">${csrf}<input type="hidden" name="action" value="keep"><button type="submit" class="small">Keep ${name}</button></form>`
 			: `<details style="margin-top:12px"><summary>Cancel ${name}</summary>
 <p class="dim">You keep it until ${date(plan.period_end)}, the end of ${plan.until ? "your plan" : "its current month"}. Then it ends${checkmark}. Until then you can keep it after all.</p>

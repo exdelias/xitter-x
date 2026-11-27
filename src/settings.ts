@@ -152,14 +152,21 @@ const DEFAULTS = {
 	money: { starting_cents: 500, max_transfer_cents: 100_000, like_cents: 50, feed: "", follow_network: false, peer_daily_cents: 100_000, move_balance: true, network_totals: false },
 	// money shop: listings are in money_shop_items; only approved announcements are shown
 	ads: { enabled: true, min_spend_cents: 500, base_cpm_cents: 20, price_scale_cents: 10_000, economy_cpm_ppm: 20, demand_share_pct: 1, max_days: 7, max_pending: 3, reject_refund_pct: 100, min_viewer_age_days: 3 },
+	// crypto.ts: buying and selling coins with Equicoins at real market prices
+	money_crypto: { enabled: true },
 	money_shop: { enabled: false, announcement: null as null | { id: string; text: string; buttons: { label: string; url: string }[] } },
 	// Original Content Rewards (content-rewards.ts): every 15 minutes, posts
 	// going viral pay their authors in Equicoins. An engagement is another
 	// account liking, reposting, replying, quoting or bookmarking, once per
 	// account and post; the cents are per engagement and per 1,000 views
 	content_rewards: {
-		enabled: false,
+		enabled: true,
 		premium_only: true,
+		// the author's followers needed to earn at all
+		min_followers: 10_000,
+		// a post's engagement rate (engagements per view) in the window scales its
+		// pay between half and double (content-rewards.ts rateFactor)
+		rate_bonus: true,
 		min_engagements: 20,
 		min_views: 500,
 		cents_per_engagement: 10,

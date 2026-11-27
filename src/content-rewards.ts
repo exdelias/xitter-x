@@ -15,9 +15,14 @@
 // counts (count_overrides) don't. It pays per engagement and per 1,000 views,
 // held to a most per post and window and a most per account each 24 hours.
 //
+// The pay grows with the accounts that engaged and saw it, and the share of
+// those who saw it that engaged (its engagement rate) scales it: 5% pays as
+// is, less pays down to half, more up to double.
+//
 // What earns: posts, replies and quotes (reposts aren't posts here) made in
-// the last few days by an active local account (with a Premium plan, unless
-// that's switched off), not hidden, limited (Fosnr), an ad or a Circle post.
+// the last few days by an active local account with at least min_followers
+// followers (and a Premium plan, unless that's switched off), not hidden,
+// limited (Fosnr), an ad or a Circle post.
 
 import { sql } from "./db";
 import { newId } from "./ids";
@@ -44,9 +49,15 @@ export function windowsToRun(last: number | null, latest: number, most = CATCH_U
 export const isViral = (engagements: number, views: number, r: RewardRules) =>
 	(r.min_engagements > 0 && engagements >= r.min_engagements) || (r.min_views > 0 && views >= r.min_views);
 
+// the engagement rate's weight on the pay: 1 at 5%, from 0.5 to 2
+export function rateFactor(engagements: number, views: number, r: RewardRules) {
+	if (!r.rate_bonus || views <= 0) return 1;
+	return Math.min(2, Math.max(0.5, 0.5 + (engagements / views) * 10));
+}
+
 // what a viral post earns in one window, before the account's daily most
 export const payoutFor = (engagements: number, views: number, r: RewardRules) =>
-	Math.min(r.max_post_cents, engagements * r.cents_per_engagement + Math.floor((views * r.cents_per_1000_views) / 1000));
+	Math.min(r.max_post_cents, Math.floor((engagements * r.cents_per_engagement + Math.floor((views * r.cents_per_1000_views) / 1000)) * rateFactor(engagements, views, r)));
 
 // what each post got in the window: the other accounts' engagements, one
 // row per account and post (the author's own left out)
@@ -85,7 +96,8 @@ async function payWindow(endMs: number, r: RewardRules): Promise<{ posts: number
 			from (select post_id from eng union select post_id from vw) c
 				join posts p on p.id = c.post_id join users a on a.id = p.user_id
 				left join eng on eng.post_id = p.id left join vw on vw.post_id = p.id
-			where a.instance is null and a.status = 'active' and not a.shadow_banned and a.deactivated_at is null
+				left join user_stats s on s.user_id = a.id
+			where a.instance is null and coalesce(s.followers, 0) >= ${r.min_followers} and a.status = 'active' and not a.shadow_banned and a.deactivated_at is null
 				${r.premium_only ? sql`and a.premium_tier is not null` : sql``}
 				and not p.hidden and not p.ad_only and p.circle_owner_id is null and p.notice->>'type' is distinct from 'Fosnr'
 				and p.created_at < ${end} and p.created_at >= ${end}::timestamptz - make_interval(hours => ${r.max_post_age_hours})`;
@@ -143,14 +155,17 @@ export async function markRewardsStart(now = Date.now()) {
 export async function rewardsOf(userId: string) {
 	const r = settings().content_rewards;
 	const [[u], totals, recent] = await Promise.all([
-		sql`select instance, status, shadow_banned, premium_tier from users where id = ${userId}::bigint`,
+		sql`select u.instance, u.status, u.shadow_banned, u.premium_tier, coalesce(s.followers, 0)::int as followers
+			from users u left join user_stats s on s.user_id = u.id where u.id = ${userId}::bigint`,
 		sql`select coalesce(sum(cents) filter (where created_at > now() - interval '1 day'), 0)::bigint as day,
 			coalesce(sum(cents), 0)::bigint as total, count(*)::int as payouts from content_rewards where author_id = ${userId}::bigint`,
 		sql`select c.window_end, c.post_id::text, c.engagements, c.views, c.cents, p.text, p.reply_to_id is not null as reply
 			from content_rewards c left join posts p on p.id = c.post_id where c.author_id = ${userId}::bigint order by c.window_end desc, c.id desc limit 30`,
 	]);
-	const why = !feature("money") || !r.enabled ? "off" : u?.instance ? "remote" : u?.status !== "active" ? "standing" : r.premium_only && !u?.premium_tier ? "premium" : null;
-	return { rules: r, eligible: !why, why, day: Number(totals[0].day), total: Number(totals[0].total), payouts: totals[0].payouts, recent };
+	const followers = u?.followers ?? 0;
+	const why = !feature("money") || !r.enabled ? "off" : u?.instance ? "remote" : u?.status !== "active" ? "standing"
+		: followers < r.min_followers ? "followers" : r.premium_only && !u?.premium_tier ? "premium" : null;
+	return { rules: r, eligible: !why, why, followers, day: Number(totals[0].day), total: Number(totals[0].total), payouts: totals[0].payouts, recent };
 }
 
 // Admin > Equicoins: what the program paid

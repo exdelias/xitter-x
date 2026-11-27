@@ -1969,6 +1969,9 @@ create index if not exists users_premium_until_idx on users (premium_until) wher
 -- set when the account cancels: the plan runs to the end of its period, then ends
 alter table users add column if not exists premium_cancel_at timestamptz;
 create index if not exists users_premium_cancel_idx on users (premium_cancel_at) where premium_cancel_at is not null;
+-- 'affiliate': the plan comes with being a verified affiliate of an organisation
+-- (premium.ts syncAffiliatePremium), and goes when that stops; null: the account's own
+alter table users add column if not exists premium_source text check (premium_source in ('affiliate'));
 -- requests for a plan, which staff approve or decline (Admin > Premium)
 create table if not exists premium_requests (
 	id bigint primary key,
@@ -2018,3 +2021,24 @@ create table if not exists content_reward_engagers (
 );
 -- the reward job reads a window of bookmarks by time, as it does likes and reposts
 create index if not exists bookmarks_created_idx on bookmarks (created_at);
+
+-- Crypto in Equicoins (crypto.ts): coins an account holds, bought with its
+-- balance at market prices (cost_cents: what the units held cost), and every trade
+create table if not exists money_crypto_holdings (
+	user_id bigint not null references users (id) on delete cascade,
+	asset text not null,
+	units numeric(38, 18) not null check (units >= 0),
+	cost_cents bigint not null default 0 check (cost_cents >= 0),
+	primary key (user_id, asset)
+);
+create table if not exists money_crypto_trades (
+	id bigint primary key,
+	user_id bigint not null references users (id) on delete cascade,
+	asset text not null,
+	side text not null check (side in ('buy', 'sell')),
+	units numeric(38, 18) not null,
+	price numeric(30, 10) not null,
+	cents bigint not null,
+	created_at timestamptz not null default now()
+);
+create index if not exists money_crypto_trades_user_idx on money_crypto_trades (user_id, id desc);

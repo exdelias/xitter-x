@@ -92,7 +92,7 @@ import { forgetRanking } from "./ranking";
 import { cardsApi, payMeApi, recentApi } from "./money";
 import { merchantRoute, moneyRoute } from "./money-page";
 import { expireShopCheckmarks } from "./money-shop";
-import { expirePremium } from "./premium";
+import { expirePremium, syncAffiliatePremium } from "./premium";
 import { payContentRewards } from "./content-rewards";
 import { premiumRoute } from "./premium-page";
 import { restrictedPage, restrictedRefuses } from "./restricted-page";
@@ -403,10 +403,12 @@ setInterval(
 // Premium plans end on their end date (premium.ts)
 setInterval(
 	() =>
-		expirePremium().catch((e) => {
-			console.error("premium expiry failed", e.message);
-			recordError("job", e, { path: "premium expiry" });
-		}),
+		expirePremium()
+			.then(() => syncAffiliatePremium())
+			.catch((e) => {
+				console.error("premium expiry failed", e.message);
+				recordError("job", e, { path: "premium expiry" });
+			}),
 	60_000,
 ).unref();
 // Original Content Rewards pay each 15-minute window once it has ended (content-rewards.ts)

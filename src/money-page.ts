@@ -41,7 +41,9 @@ import { hit } from "./ratelimit";
 import { feature, settings } from "./settings";
 import { MONEY_ICON } from "./tidy";
 import { buyShopItem, myShopOrders, shopItems, shopView, ShopError } from "./money-shop";
-import { rewardsOf } from "./content-rewards";
+import { WINDOW_MS, rewardsOf, windowEndBefore } from "./content-rewards";
+import { assetOf, buyCrypto, cryptoOn, sellCrypto } from "./crypto";
+import { CRYPTO_CSS, cryptoAsset, cryptoHome, cryptoSummary } from "./money-crypto-page";
 
 const CSS = `
 main{padding:0;gap:0}
@@ -163,12 +165,57 @@ dd{margin:0;text-align:right;overflow-wrap:anywhere;display:flex;justify-content
 .preview{display:grid;gap:12px}
 .xm-badge{width:18px;height:18px;flex:none}
 .xm-card{margin:0;--xm-bg:var(--bg);--xm-fg:var(--text)}
+/* the wallet: the balance, four actions, and cards (as X Money lays it out) */
+.wallet{padding:28px 16px 8px}
+.wallet .label{color:var(--muted);font-size:15px}
+.wallet .total{font-size:56px;line-height:64px;font-weight:800;letter-spacing:-2px;font-variant-numeric:tabular-nums;margin:2px 0}
+.wallet .total sup{font-size:26px;letter-spacing:-.5px;vertical-align:28px;margin-left:2px}
+.wallet .split{color:var(--muted);font-size:14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-start}
+.qa{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:20px 16px 8px}
+.qa a{display:grid;justify-items:center;gap:8px;padding:14px 4px 12px;border-radius:16px;background:color-mix(in srgb,var(--text) 6%,transparent);color:var(--text);font-weight:700;font-size:14px;text-decoration:none}
+@media (hover:hover){.qa a:hover{background:color-mix(in srgb,var(--text) 10%,transparent);text-decoration:none}}
+.qa svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:8px 16px 12px}
+.wcard{display:grid;align-content:start;gap:6px;padding:14px;border-radius:16px;background:color-mix(in srgb,var(--text) 6%,transparent);color:var(--text);text-decoration:none;min-width:0}
+a.wcard:hover{text-decoration:none}
+@media (hover:hover){a.wcard:hover{background:color-mix(in srgb,var(--text) 10%,transparent)}}
+.wcard h2{margin:0 0 4px;font-size:15px;font-weight:700}
+.wcard .kv{display:flex;justify-content:space-between;gap:8px;font-size:14px}
+.wcard .kv span:first-child{color:var(--muted)}
+.wcard .kv b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.wcard .in{color:var(--success)}
+.wcard .out{color:var(--danger)}
+.more-links{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 8px}
+@media(max-width:420px){.qa{gap:6px}.qa a{font-size:12px}.wallet .total{font-size:44px;line-height:52px}.wallet .total sup{font-size:20px;vertical-align:20px}}
+/* Original Content Rewards: the total, then payouts (X's Creator Rewards) */
+.rw-total{display:grid;justify-items:center;gap:6px;padding:36px 16px 28px;text-align:center}
+.rw-total .amount{font-size:52px;line-height:60px;font-weight:800;letter-spacing:-1.5px;font-variant-numeric:tabular-nums}
+.rw-total .label{color:var(--muted);font-size:17px}
+.rw-h{margin:0;padding:16px 16px 4px;font-size:20px;font-weight:800}
+.rw-row{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:0 16px;padding:12px 16px;color:var(--text);text-decoration:none}
+a.rw-row:hover{text-decoration:none}
+@media (hover:hover){a.rw-row:hover{background:color-mix(in srgb,var(--text) 4%,transparent)}}
+.rw-row svg{width:26px;height:26px;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.rw-row .t{font-weight:700;font-size:17px;font-variant-numeric:tabular-nums}
+.rw-row .s{color:var(--muted);font-size:15px}
+.rw-row .r{color:var(--muted);font-size:13px;text-align:right}
+.rw-cal{stroke:rgb(29 155 240)}
+.rw-bag{stroke:var(--success)}
+.progress{height:8px;border-radius:9999px;background:color-mix(in srgb,var(--text) 10%,transparent);overflow:hidden;margin-top:8px}
+.progress>span{display:block;height:100%;background:var(--accent);border-radius:inherit}
+.rw-elig{margin:0 16px 8px;padding:14px 16px;border-radius:16px;background:color-mix(in srgb,var(--text) 6%,transparent)}
+.rw-elig.ok{background:rgb(0 186 124 / .12)}
+details.how{margin:8px 16px 24px;border:1px solid var(--border);border-radius:16px;padding:4px 16px}
+details.how summary{cursor:pointer;font-weight:700;padding:12px 0}
+details.how ul{margin:0 0 12px;padding-left:20px;display:grid;gap:8px}
+${CRYPTO_CSS}
 ${CARD_CSS}`;
 
 // links on the page that open the client's composer with a payment or request
 // in it (money-ui.ts takes it from there); cards go to their page; picking a
 // person fills the To field; the amount field grows as it's typed in
-const SCRIPT = `document.addEventListener("click",function(e){
+const SCRIPT = `[].forEach.call(document.querySelectorAll("time[data-local]"),function(t){var d=new Date(t.getAttribute("datetime"));if(!isNaN(d))t.textContent=d.toLocaleString(undefined,t.getAttribute("data-local")==="date"?{month:"short",day:"numeric",year:"numeric"}:{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})});
+document.addEventListener("click",function(e){
 	var b=e.target.closest("[data-compose]");
 	if(b){e.preventDefault();var t=b.getAttribute("data-compose");try{parent.__xitterCompose(t)}catch(x){sessionStorage.setItem("xitter-compose",t);top.location.href="/compose/post"}return}
 	var g=e.target.closest("[data-xm-go]");
@@ -287,7 +334,13 @@ async function activity(userId: string, screenName: string) {
 	return items.sort((a, b) => b.at.getTime() - a.at.getTime());
 }
 
-// Original Content Rewards: how it works here, whether the account earns, and what it earned
+// Original Content Rewards: the total paid, whether the account earns (and
+// how far it is from the followers it needs), the next payout and each one
+// since, as X's Creator Rewards page shows them
+const CALENDAR = `<svg class="rw-cal" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>`;
+const BAG = `<svg class="rw-bag" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5h6l-2 3.5h-2L9 3.5zM11 7c-4 1.5-7 5.5-7 9.5 0 2.5 2 4 4.5 4h7c2.5 0 4.5-1.5 4.5-4 0-4-3-8-7-9.5"/><path d="M14 11.5c-.4-.6-1.1-1-2-1-1.2 0-2 .7-2 1.5 0 2 4 1 4 3 0 .8-.8 1.5-2 1.5-.9 0-1.6-.4-2-1M12 9.5v1M12 16.5v1"/></svg>`;
+const isoTime = (d: Date | number, kind = "time") => `<time data-local="${kind}" datetime="${new Date(d).toISOString()}">${esc(new Date(d).toISOString().slice(0, 16).replace("T", " "))} UTC</time>`;
+
 async function rewardsPage(req: Request, viewer: Viewer) {
 	const r = await rewardsOf(viewer.id);
 	const money = (c: number) => (c < 100 ? `${c}¢` : formatCents(c));
@@ -296,21 +349,36 @@ async function rewardsPage(req: Request, viewer: Viewer) {
 		off: "The program isn't running on this instance right now.",
 		remote: "Only accounts of this instance earn here.",
 		standing: "Your account can't earn right now.",
-		premium: `It's for accounts with a Premium plan. <a href="/i/xpremium">Ask for one</a>.`,
+		followers: `You need ${rules.min_followers.toLocaleString("en-US")} followers to earn. You have ${r.followers.toLocaleString("en-US")}.`,
+		premium: `It's for accounts with Premium. <a href="/i/xpremium">Get Premium</a>.`,
 	};
+	const share = rules.min_followers ? Math.min(100, Math.round((r.followers / rules.min_followers) * 100)) : 100;
+	const elig = r.eligible
+		? `<div class="rw-elig ok" role="status"><b>You're earning.</b> Your posts and replies pay out when they go viral.</div>`
+		: `<div class="rw-elig" role="status"><b>Not earning yet.</b> ${why[r.why ?? "off"]}${r.why === "followers" ? `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${share}" aria-label="Followers toward the minimum"><span style="width:${share}%"></span></div>` : ""}</div>`;
+	const next = windowEndBefore(Date.now()) + WINDOW_MS;
+	const rows = r.recent
+		.map((x: any) => {
+			const rate = x.views ? `${((x.engagements / x.views) * 100).toFixed(1)}% engagement` : "";
+			const inner = `${BAG}<div><div class="t">${formatCents(x.cents)}</div><div class="s">${isoTime(x.window_end)}</div></div>
+<div class="r">${x.engagements.toLocaleString("en-US")} engagements<br>${x.views.toLocaleString("en-US")} views${rate ? `<br>${rate}` : ""}</div>`;
+			return x.post_id ? `<a class="rw-row" href="/${esc(viewer.screen_name)}/status/${x.post_id}">${inner}</a>` : `<div class="rw-row">${inner}</div>`;
+		})
+		.join("\n");
 	const viral = [rules.min_engagements > 0 ? `${rules.min_engagements} engagements` : "", rules.min_views > 0 ? `${rules.min_views.toLocaleString("en-US")} views` : ""].filter(Boolean).join(" or ");
-	const body = `<section class="hero" aria-label="Rewards">${tile}<div class="label">Earned in the last 24 hours</div><div class="amount">${formatCents(r.day)}</div>
-<p class="dim">${formatCents(r.total)} in all, from ${r.payouts.toLocaleString("en-US")} payout${r.payouts === 1 ? "" : "s"}</p></section>
-<div class="notice${r.eligible ? "" : " error"}" role="status">${r.eligible ? "Your posts and replies earn when they go viral." : why[r.why ?? "off"]}</div>
-<div class="month">How it works</div>
-<ul class="rules">
-<li>Every 15 minutes, a post or reply of yours from the last ${rules.max_post_age_hours} hours that drew ${viral || "enough attention"} in those 15 minutes goes viral, and earns.</li>
-<li>${money(rules.cents_per_engagement)} for each account that liked, reposted, replied, quoted or bookmarked it, and ${money(rules.cents_per_1000_views)} for each 1,000 accounts that saw it. Each account counts once per post, and your own don't count.</li>
-<li>Up to ${formatCents(rules.max_post_cents)} for one post in 15 minutes, and ${formatCents(rules.daily_cap_cents)} for all of yours in 24 hours. It goes straight into your balance.</li>
-<li>Accounts newer than ${rules.min_account_days} days, and hidden or limited posts, don't count.</li>
-</ul>
-<div class="month">Payouts</div>
-${r.recent.length ? r.recent.map((x: any) => rewardRow(x, viewer.screen_name)).join("\n") : `<p class="empty">Nothing yet.</p>`}`;
+	const body = `<section class="rw-total" aria-label="Total payouts"><div class="amount">${formatCents(r.total)}</div><div class="label">Total payouts</div>
+${r.day ? `<div class="dim">${formatCents(r.day)} in the last 24 hours</div>` : ""}</section>
+${elig}
+<h2 class="rw-h">Payouts</h2>
+${r.eligible ? `<div class="rw-row">${CALENDAR}<div><div class="t">Next payout</div><div class="s">${isoTime(next)}</div></div><div class="r">every 15 minutes</div></div>` : ""}
+${rows || `<p class="empty">No payouts yet.</p>`}
+<details class="how"><summary>How it works</summary><ul>
+<li>Every 15 minutes, posts and replies of yours from the last ${rules.max_post_age_hours} hours that drew ${viral || "enough attention"} in those 15 minutes have gone viral, and pay out straight into your Equicoins balance.</li>
+<li>The more people engage, the more you earn: ${money(rules.cents_per_engagement)} for each account that liked, reposted, replied, quoted or bookmarked, and ${money(rules.cents_per_1000_views)} for each 1,000 accounts that saw it. Each account counts once per post; your own don't count.</li>
+${rules.rate_bonus ? `<li>Your engagement rate (engagements per view) scales the payout: around 5% pays as above, lower pays down to half, higher up to double.</li>` : ""}
+<li>You need ${rules.min_followers.toLocaleString("en-US")} followers${rules.premium_only ? " and Premium" : ""} to take part.</li>
+<li>Up to ${formatCents(rules.max_post_cents)} for one post in 15 minutes, and ${formatCents(rules.daily_cap_cents)} for all of yours in 24 hours. Accounts newer than ${rules.min_account_days} days, and hidden or limited posts, don't count.</li>
+</ul></details>`;
 	return page(req, viewer, "Original Content Rewards", body);
 }
 
@@ -332,8 +400,34 @@ async function waiting(userId: string) {
 		});
 }
 
+// line icons for the wallet's actions
+const QA_ICON = {
+	send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3 10 14M21 3l-7 18-4-7-7-4 18-7z"/></svg>',
+	request: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v13M6 11l6 6 6-6M5 20h14"/></svg>',
+	crypto: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 7.5h4a2 2 0 0 1 0 4h-4m0 0h4.5a2 2 0 0 1 0 4H9.5v-8m1.5-1.5v1.5m0 8V17m2-10.5V7.5m0 8V17"/></svg>',
+	rewards: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>',
+	shop: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8zM9 8V6a3 3 0 0 1 6 0v2"/></svg>',
+};
+
+// what the account earned, from likes and Original Content Rewards, in all and this month
+async function earnings(userId: string) {
+	const [e] = await sql`select
+		(select coalesce(sum(cents), 0) from money_like_rewards where author_id = ${userId}::bigint)::bigint
+			+ (select coalesce(sum(cents), 0) from content_rewards where author_id = ${userId}::bigint)::bigint as total,
+		(select coalesce(sum(cents), 0) from money_like_rewards where author_id = ${userId}::bigint and created_at >= date_trunc('month', now()))::bigint
+			+ (select coalesce(sum(cents), 0) from content_rewards where author_id = ${userId}::bigint and created_at >= date_trunc('month', now()))::bigint as month`;
+	return { total: Number(e.total), month: Number(e.month) };
+}
+
 async function home(req: Request, viewer: Viewer, status = 200, notice = "", error = "") {
-	const [balance, items, asks] = await Promise.all([balanceOf(viewer.id), activity(viewer.id, viewer.screen_name), waiting(viewer.id)]);
+	const crypto = cryptoOn();
+	const [balance, items, asks, earned, coins] = await Promise.all([
+		balanceOf(viewer.id),
+		activity(viewer.id, viewer.screen_name),
+		waiting(viewer.id),
+		earnings(viewer.id),
+		crypto ? cryptoSummary(viewer.id) : null,
+	]);
 	let month = "";
 	const list = items.length
 		? items
@@ -346,13 +440,31 @@ async function home(req: Request, viewer: Viewer, status = 200, notice = "", err
 				.join("\n")
 		: `<p class="empty">No activity yet.<br>Equicoins you send, receive and earn shows up here.</p>`;
 	const likes = economy().like_cents;
+	const s = settings();
+	const total = balance + (coins?.value ?? 0);
+	const [whole, cents] = formatCents(total).split(".");
+	const gain = coins ? coins.value - coins.cost : 0;
+	const four = crypto && s.content_rewards.enabled;
+	const actions = viewer.actor
+		? `<p class="dim" style="padding:0 16px">Only @${esc(viewer.screen_name)} can send money from this account.</p>`
+		: `<nav class="qa" aria-label="Actions"><a href="/account/money/send">${QA_ICON.send}Send</a><a href="/account/money/request">${QA_ICON.request}Request</a>${crypto ? `<a href="/account/money/crypto">${QA_ICON.crypto}Crypto</a>` : ""}${s.content_rewards.enabled ? `<a href="/account/money/rewards">${QA_ICON.rewards}Rewards</a>` : ""}${s.money_shop.enabled && !four ? `<a href="/account/money/shop">${QA_ICON.shop}Shop</a>` : ""}</nav>
+${s.money_shop.enabled && four ? `<div class="more-links"><a class="pill small" href="/account/money/shop">Shop</a></div>` : ""}`;
+	const latest = items.slice(0, 2).map((i) => i.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+	const second = coins
+		? `<a class="wcard" href="/account/money/crypto"><h2>Crypto</h2><div class="kv"><span>Holdings</span><b>${formatCents(coins.value)}</b></div><div class="kv"><span>All time</span><b class="${gain >= 0 ? "in" : "out"}">${gain >= 0 ? "+" : "−"}${formatCents(Math.abs(gain))}</b></div></a>`
+		: `<div class="wcard"><h2>Activity</h2>${latest.length ? latest.map((l) => `<div class="kv"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l}</span></div>`).join("") : `<div class="kv"><span>Nothing yet</span></div>`}</div>`;
 	return page(
 		req,
 		viewer,
 		"Equicoins",
-		`<section class="hero" aria-label="Balance">${tile}<div class="label">Balance</div><div class="amount">${formatCents(balance)}</div>
-${viewer.actor ? `<p class="dim">Only @${esc(viewer.screen_name)} can send money from this account.</p>` : `<div class="actions"><a class="pill primary" href="/account/money/send">Send</a><a class="pill" href="/account/money/request">Request</a>${settings().money_shop.enabled ? `<a class="pill" href="/account/money/shop">Shop</a>` : ""}${settings().content_rewards.enabled ? `<a class="pill" href="/account/money/rewards">Rewards</a>` : ""}</div>`}
-${likes > 0 ? `<p class="dim" style="margin-top:12px">You earn ${likes < 100 ? `${likes}¢` : formatCents(likes)} for each like on your posts.</p>` : ""}</section>
+		`<section class="wallet" aria-label="Balance"><div class="label">Total balance</div><div class="total">${whole}<sup>.${cents ?? "00"}</sup></div>
+<div class="split"><span>Cash ${formatCents(balance)}</span>${coins ? `<span aria-hidden="true">·</span><span>Crypto ${formatCents(coins.value)}</span>` : ""}</div></section>
+${actions}
+<div class="cards">
+<a class="wcard" href="${s.content_rewards.enabled ? "/account/money/rewards" : "/account/money"}"><h2>Earnings</h2><div class="kv"><span>Lifetime</span><b>${formatCents(earned.total)}</b></div><div class="kv"><span>This month</span><b class="in">+${formatCents(earned.month)}</b></div></a>
+${second}
+</div>
+${likes > 0 ? `<p class="dim" style="padding:0 16px;margin:0 0 4px;font-size:14px">You earn ${likes < 100 ? `${likes}¢` : formatCents(likes)} for each like on your posts.</p>` : ""}
 ${notice ? `<div class="notice" role="status">${notice}</div>` : ""}${error ? `<div class="notice error" role="alert">${esc(error)}</div>` : ""}
 ${asks.length ? `<section aria-label="Requests"><div class="month">Requests</div>${asks.join("\n")}</section>` : ""}
 <section aria-label="Activity">${list}</section>
@@ -652,6 +764,34 @@ export async function moneyRoute(req: Request, viewer: Viewer): Promise<Response
 		}
 	}
 	if (p === "/account/money/rewards" && req.method === "GET") return rewardsPage(req, viewer);
+	if (p === "/account/money/crypto" || p.startsWith("/account/money/crypto/")) {
+		if (!cryptoOn()) return page(req, viewer, "Crypto", `<p class="empty">Crypto isn't available here.</p>`, 404);
+		if (p === "/account/money/crypto") return page(req, viewer, "Crypto", await cryptoHome(viewer.id, await balanceOf(viewer.id)));
+		const asset = assetOf(p.slice("/account/money/crypto/".length));
+		if (!asset) return new Response("not found", { status: 404 });
+		const back = { href: "/account/money/crypto", label: "Back to Crypto" };
+		const show = async (code = 200, form: { side?: string; amount?: string } = {}, err = "", done = "") =>
+			page(req, viewer, asset.name, `${done ? `<div class="notice" role="status">${esc(done)}</div>` : ""}${err ? `<div class="notice error" role="alert">${esc(err)}</div>` : ""}${await cryptoAsset(viewer.id, asset, await balanceOf(viewer.id), form)}`, code, back);
+		if (req.method !== "POST") {
+			const done = url.searchParams.get("done");
+			return show(200, {}, "", done === "buy" ? `Bought ${asset.name}.` : done === "sell" ? `Sold ${asset.name}.` : "");
+		}
+		const form = await req.formData();
+		const values = { side: String(form.get("side") ?? "buy"), amount: String(form.get("amount") ?? "") };
+		if (viewer.actor) return show(403, values, `Only @${viewer.screen_name} can trade for this account.`);
+		if (!hit("write", viewer.id).ok) return show(429, values, "You're trading too fast. Wait a few minutes and try again.");
+		const all = values.side === "sell" && form.get("all") === "1";
+		const cents = all ? null : parseAmount(values.amount);
+		if (!all && cents === null) return show(400, values, "Enter an amount, like 5 or 12.50.");
+		try {
+			if (values.side === "sell") await sellCrypto(viewer.id, asset.symbol, cents);
+			else await buyCrypto(viewer.id, asset.symbol, cents as number);
+		} catch (e) {
+			if (e instanceof MoneyError) return show(400, values, e.message);
+			throw e;
+		}
+		return new Response(null, { status: 303, headers: { location: `/account/money/crypto/${asset.symbol}?done=${values.side === "sell" ? "sell" : "buy"}` } });
+	}
 	if (p === "/account/money/shop") {
 		if (!settings().money_shop.enabled) return page(req, viewer, "Equicoins shop", `<p class="empty">The shop is closed.</p>`, 404);
 		let error = "";
